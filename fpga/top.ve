@@ -1,0 +1,42 @@
+SYSCLK 200
+BUSCLK 100
+PLLCLK4 100
+PLLCLK4_PHASE 180
+HSECLK 8
+USB0 host
+
+
+soc_led PIN_24:OUTPUT
+soc_s2  PIN_67:INPUT
+
+
+# PLL_CLK4直接输出到spi_clk(PIN_30)
+# 下面的PIN_51是不存在的
+PLL_CLKOUT4   PIN_30
+
+soc_spi_csn   PIN_7:OUTPUT
+soc_spi_clk   PIN_51:OUTPUT
+soc_spi_io0   PIN_32
+soc_spi_io1   PIN_31
+soc_spi_io2   PIN_46
+soc_spi_io3   PIN_48
+
+
+GPIO2_0 ip_pti:INPUT
+GPIO2_1 ip_pto:OUTPUT
+
+
+UART0_UARTRXD PIN_69
+UART0_UARTTXD PIN_68
+
+
+#SPI0_SI_IO0   PIN_32
+#SPI0_SO_IO1   PIN_31
+#SPI0_SCK      PIN_30
+#SPI0_CSN      PIN_7
+
+SPI1_SI_IO0   PIN_83
+SPI1_SO_IO1   PIN_65
+SPI1_SCK      PIN_80
+SPI1_CSN      PIN_79
+

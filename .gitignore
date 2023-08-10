@@ -1,0 +1,11 @@
+
+/*.o
+/*.bin
+/*.dump
+
+/fpga/ulogic/*
+!/fpga/ulogic/ulogic.v
+!/fpga/ulogic/tpsram.v
+!/fpga/ulogic/sync_dpram.v
+!/fpga/ulogic/top.sdc
+

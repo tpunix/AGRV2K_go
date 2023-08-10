@@ -1,0 +1,1450 @@
+#!/usr/bin/env python3
+
+import sys, os
+import re
+import itertools
+import argparse
+from typing import TextIO
+
+def ErrorOut(msg: str, code = 1):
+  print(f"Error: {msg}", file=sys.stderr, flush=True)
+  sys.exit(code)
+
+def Warn(msg:str):
+  print(f"Warn: {msg}", file=sys.stderr, flush=True)
+
+def Info(msg: str):
+  print(f"Info: {msg}", file=sys.stderr, flush=True)
+
+class PinDir:
+  INPUT  = 'INPUT'
+  OUTPUT = 'OUTPUT'
+  INOUT  = 'INOUT'
+  def isInput(dir):
+    return dir == PinDir.INOUT or dir == PinDir.INPUT
+  def isOutput(dir):
+    return dir == PinDir.INOUT or dir == PinDir.OUTPUT
+  def isInout(dir):
+    return dir == PinDir.INOUT
+
+CHIP_INFO = {}
+# All user assignable pins, not including dedicate and NC pins.
+CHIP_INFO['AGRV2KL100'] = set(pin.strip() for pin in """
+  PIN_1
+  PIN_2
+  PIN_3
+  PIN_4
+  PIN_5
+  PIN_7
+  PIN_15
+  PIN_16
+  PIN_17
+  PIN_18
+  PIN_25
+  PIN_24
+  PIN_23
+  PIN_26
+  PIN_29
+  PIN_30
+  PIN_31
+  PIN_32
+  PIN_33
+  PIN_34
+  PIN_35
+  PIN_36
+  PIN_37
+  PIN_38
+  PIN_39
+  PIN_40
+  PIN_41
+  PIN_42
+  PIN_43
+  PIN_44
+  PIN_45
+  PIN_46
+  PIN_47
+  PIN_48
+  PIN_51
+  PIN_52
+  PIN_53
+  PIN_54
+  PIN_55
+  PIN_56
+  PIN_57
+  PIN_58
+  PIN_59
+  PIN_60
+  PIN_61
+  PIN_62
+  PIN_63
+  PIN_64
+  PIN_65
+  PIN_66
+  PIN_67
+  PIN_68
+  PIN_69
+  PIN_70
+  PIN_71
+  PIN_72
+  PIN_73
+  PIN_76
+  PIN_77
+  PIN_78
+  PIN_79
+  PIN_80
+  PIN_81
+  PIN_82
+  PIN_83
+  PIN_84
+  PIN_85
+  PIN_86
+  PIN_87
+  PIN_88
+  PIN_89
+  PIN_90
+  PIN_91
+  PIN_92
+  PIN_93
+  PIN_95
+  PIN_96
+  PIN_97
+  PIN_98
+  CLKLOCAL_RTC
+  PIN_HSE
+  PIN_HSI
+  PIN_OSC
+  """.split('\n')[1:-1])
+CHIP_INFO['AGRV2KL64'] = set(pin.strip() for pin in """
+  PIN_2
+  PIN_8
+  PIN_9
+  PIN_10
+  PIN_11
+  PIN_14
+  PIN_15
+  PIN_16
+  PIN_17
+  PIN_20
+  PIN_21
+  PIN_22
+  PIN_23
+  PIN_24
+  PIN_25
+  PIN_26
+  PIN_27
+  PIN_28
+  PIN_29
+  PIN_30
+  PIN_31
+  PIN_33
+  PIN_34
+  PIN_35
+  PIN_36
+  PIN_37
+  PIN_38
+  PIN_39
+  PIN_40
+  PIN_41
+  PIN_42
+  PIN_43
+  PIN_44
+  PIN_45
+  PIN_46
+  PIN_47
+  PIN_49
+  PIN_50
+  PIN_51
+  PIN_52
+  PIN_53
+  PIN_54
+  PIN_55
+  PIN_56
+  PIN_57
+  PIN_58
+  PIN_59
+  PIN_61
+  PIN_62
+  CLKLOCAL_RTC
+  PIN_HSE
+  PIN_HSI
+  PIN_OSC
+  """.split('\n')[1:-1])
+CHIP_INFO['AGRV2KL48'] = set(pin.strip() for pin in """
+  PIN_2
+  PIN_10
+  PIN_11
+  PIN_12
+  PIN_13
+  PIN_14
+  PIN_15
+  PIN_16
+  PIN_17
+  PIN_18
+  PIN_19
+  PIN_20
+  PIN_21
+  PIN_22
+  PIN_25
+  PIN_26
+  PIN_27
+  PIN_28
+  PIN_29
+  PIN_30
+  PIN_31
+  PIN_32
+  PIN_33
+  PIN_34
+  PIN_35
+  PIN_37
+  PIN_38
+  PIN_39
+  PIN_40
+  PIN_41
+  PIN_42
+  PIN_43
+  PIN_45
+  PIN_46
+  CLKLOCAL_RTC
+  PIN_HSE
+  PIN_HSI
+  PIN_OSC
+  """.split('\n')[1:-1])
+
+class DeviceInfo:
+  NAME = ""
+  DEVICE_PINS = set()
+
+  GPIO_COUNT = 10
+  GPIO_BITS  = 8
+
+  class FuncPinInfo:
+    def __init__(self, gpio, dir):
+      self.gpio = gpio
+      self.dir  = dir
+
+  FUNC_PINS = {
+    'PIN_HSE_OUT' : FuncPinInfo('', 'OUTPUT'),
+    'PIN_HSI_OUT' : FuncPinInfo('', 'OUTPUT'),
+    'PIN_OSC_OUT' : FuncPinInfo('', 'OUTPUT'),
+    'PLL_LOCK': FuncPinInfo('', 'OUTPUT'),
+    'PLL_CLKIN': FuncPinInfo('', 'INPUT'),
+    'PLL_CLKOUT0': FuncPinInfo('', 'OUTPUT'),
+    'PLL_CLKOUT1': FuncPinInfo('', 'OUTPUT'),
+    'PLL_CLKOUT2': FuncPinInfo('', 'OUTPUT'),
+    'PLL_CLKOUT3': FuncPinInfo('', 'OUTPUT'),
+    'PLL_CLKOUT4': FuncPinInfo('', 'OUTPUT'),
+    'SYS_CLKOUT': FuncPinInfo('', 'OUTPUT'),
+    'GND': FuncPinInfo('', 'OUTPUT'),
+    'VCC': FuncPinInfo('', 'OUTPUT'),
+    'EXT_INT0': FuncPinInfo('', 'INPUT'),
+    'EXT_INT1': FuncPinInfo('', 'INPUT'),
+    'EXT_INT2': FuncPinInfo('', 'INPUT'),
+    'EXT_INT3': FuncPinInfo('', 'INPUT'),
+    'EXT_INT4': FuncPinInfo('', 'INPUT'),
+    'EXT_INT5': FuncPinInfo('', 'INPUT'),
+    'EXT_INT6': FuncPinInfo('', 'INPUT'),
+    'EXT_INT7': FuncPinInfo('', 'INPUT'),
+    'MAC0_CLK_OUT': FuncPinInfo('', 'INOUT'),
+    'USB0_ID': FuncPinInfo('', 'INPUT'),
+    'USB0_CLK': FuncPinInfo('', 'INPUT'),
+    'SPI0_SI_IO0': FuncPinInfo('GPIO0_0', 'INOUT'),
+    'SPI0_SO_IO1': FuncPinInfo('GPIO0_1', 'INOUT'),
+    'SPI0_WPN_IO2': FuncPinInfo('GPIO0_2', 'INOUT'),
+    'SPI0_HOLDN_IO3': FuncPinInfo('GPIO0_3', 'INOUT'),
+    'SPI1_SI_IO0': FuncPinInfo('GPIO0_4', 'INOUT'),
+    'SPI1_SO_IO1': FuncPinInfo('GPIO0_5', 'INOUT'),
+    'SPI1_WPN_IO2': FuncPinInfo('GPIO0_6', 'INOUT'),
+    'SPI1_HOLDN_IO3': FuncPinInfo('GPIO0_7', 'INOUT'),
+    'GPTIMER0_CH0': FuncPinInfo('GPIO1_0', 'INOUT'),
+    'GPTIMER0_CH1': FuncPinInfo('GPIO1_1', 'INOUT'),
+    'GPTIMER0_CH2': FuncPinInfo('GPIO1_2', 'INOUT'),
+    'GPTIMER0_CH3': FuncPinInfo('GPIO1_3', 'INOUT'),
+    'GPTIMER1_CH0': FuncPinInfo('GPIO1_4', 'INOUT'),
+    'GPTIMER1_CH1': FuncPinInfo('GPIO1_5', 'INOUT'),
+    'GPTIMER1_CH2': FuncPinInfo('GPIO1_6', 'INOUT'),
+    'GPTIMER1_CH3': FuncPinInfo('GPIO1_7', 'INOUT'),
+    'GPTIMER2_CH0': FuncPinInfo('GPIO2_0', 'INOUT'),
+    'GPTIMER2_CH1': FuncPinInfo('GPIO2_1', 'INOUT'),
+    'GPTIMER2_CH2': FuncPinInfo('GPIO2_2', 'INOUT'),
+    'GPTIMER2_CH3': FuncPinInfo('GPIO2_3', 'INOUT'),
+    'GPTIMER3_CH0': FuncPinInfo('GPIO2_4', 'INOUT'),
+    'GPTIMER3_CH1': FuncPinInfo('GPIO2_5', 'INOUT'),
+    'GPTIMER3_CH2': FuncPinInfo('GPIO2_6', 'INOUT'),
+    'GPTIMER3_CH3': FuncPinInfo('GPIO2_7', 'INOUT'),
+    'GPTIMER4_CH0': FuncPinInfo('GPIO3_0', 'INOUT'),
+    'GPTIMER4_CH1': FuncPinInfo('GPIO3_1', 'INOUT'),
+    'GPTIMER4_CH2': FuncPinInfo('GPIO3_2', 'INOUT'),
+    'GPTIMER4_CH3': FuncPinInfo('GPIO3_3', 'INOUT'),
+    'I2C0_SCL': FuncPinInfo('GPIO3_4', 'INOUT'),
+    'I2C0_SDA': FuncPinInfo('GPIO3_5', 'INOUT'),
+    'I2C1_SCL': FuncPinInfo('GPIO3_6', 'INOUT'),
+    'I2C1_SDA': FuncPinInfo('GPIO3_7', 'INOUT'),
+    'MAC0_MDIO': FuncPinInfo('GPIO4_0', 'INOUT'),
+    'GPTIMER0_BRK': FuncPinInfo('GPIO4_1', 'INPUT'),
+    'GPTIMER0_ETR': FuncPinInfo('GPIO4_2', 'INPUT'),
+    'GPTIMER0_OCREF_CLR': FuncPinInfo('GPIO4_3', 'INPUT'),
+    'GPTIMER1_BRK': FuncPinInfo('GPIO4_4', 'INPUT'),
+    'GPTIMER1_ETR': FuncPinInfo('GPIO4_5', 'INPUT'),
+    'SPI0_SCK': FuncPinInfo('GPIO4_5', 'OUTPUT'),
+    'GPTIMER1_OCREF_CLR': FuncPinInfo('GPIO4_6', 'INPUT'),
+    'SPI0_CSN': FuncPinInfo('GPIO4_6', 'OUTPUT'),
+    'SPI1_SCK': FuncPinInfo('GPIO4_7', 'OUTPUT'),
+    'GPTIMER2_BRK': FuncPinInfo('GPIO4_7', 'INPUT'),
+    'SPI1_CSN': FuncPinInfo('GPIO5_0', 'OUTPUT'),
+    'GPTIMER2_ETR': FuncPinInfo('GPIO5_0', 'INPUT'),
+    'GPTIMER2_OCREF_CLR': FuncPinInfo('GPIO5_1', 'INPUT'),
+    'GPTIMER0_CHN0': FuncPinInfo('GPIO5_1', 'OUTPUT'),
+    'GPTIMER0_CHN1': FuncPinInfo('GPIO5_2', 'OUTPUT'),
+    'GPTIMER0_CHN2': FuncPinInfo('GPIO5_3', 'OUTPUT'),
+    'GPTIMER0_CHN3': FuncPinInfo('GPIO5_4', 'OUTPUT'),
+    'GPTIMER3_BRK': FuncPinInfo('GPIO5_2', 'INPUT'),
+    'GPTIMER3_ETR': FuncPinInfo('GPIO5_3', 'INPUT'),
+    'GPTIMER3_OCREF_CLR': FuncPinInfo('GPIO5_4', 'INPUT'),
+    'GPTIMER1_CHN0': FuncPinInfo('GPIO5_5', 'OUTPUT'),
+    'GPTIMER1_CHN1': FuncPinInfo('GPIO5_6', 'OUTPUT'),
+    'GPTIMER1_CHN2': FuncPinInfo('GPIO5_7', 'OUTPUT'),
+    'GPTIMER1_CHN3': FuncPinInfo('GPIO6_0', 'OUTPUT'),
+    'GPTIMER4_BRK': FuncPinInfo('GPIO5_5', 'INPUT'),
+    'GPTIMER4_ETR': FuncPinInfo('GPIO5_6', 'INPUT'),
+    'GPTIMER4_OCREF_CLR': FuncPinInfo('GPIO5_7', 'INPUT'),
+    'UART0_NUARTCTS': FuncPinInfo('GPIO6_0', 'INPUT'),
+    'UART0_UARTRXD': FuncPinInfo('GPIO6_1', 'INPUT'),
+    'GPTIMER2_CHN0': FuncPinInfo('GPIO6_1', 'OUTPUT'),
+    'GPTIMER2_CHN1': FuncPinInfo('GPIO6_2', 'OUTPUT'),
+    'GPTIMER2_CHN2': FuncPinInfo('GPIO6_3', 'OUTPUT'),
+    'GPTIMER2_CHN3': FuncPinInfo('GPIO6_4', 'OUTPUT'),
+    'UART1_NUARTCTS': FuncPinInfo('GPIO6_2', 'INPUT'),
+    'UART1_UARTRXD': FuncPinInfo('GPIO6_3', 'INPUT'),
+    'UART2_NUARTCTS': FuncPinInfo('GPIO6_4', 'INPUT'),
+    'UART2_UARTRXD': FuncPinInfo('GPIO6_5', 'INPUT'),
+    'GPTIMER3_CHN0': FuncPinInfo('GPIO6_5', 'OUTPUT'),
+    'GPTIMER3_CHN1': FuncPinInfo('GPIO6_6', 'OUTPUT'),
+    'GPTIMER3_CHN2': FuncPinInfo('GPIO6_7', 'OUTPUT'),
+    'GPTIMER3_CHN3': FuncPinInfo('GPIO7_0', 'OUTPUT'),
+    'UART3_NUARTCTS': FuncPinInfo('GPIO6_6', 'INPUT'),
+    'UART3_UARTRXD': FuncPinInfo('GPIO6_7', 'INPUT'),
+    'UART4_NUARTCTS': FuncPinInfo('GPIO7_0', 'INPUT'),
+    'UART4_UARTRXD': FuncPinInfo('GPIO7_1', 'INPUT'),
+    'GPTIMER4_CHN0': FuncPinInfo('GPIO7_1', 'OUTPUT'),
+    'GPTIMER4_CHN1': FuncPinInfo('GPIO7_2', 'OUTPUT'),
+    'GPTIMER4_CHN2': FuncPinInfo('GPIO7_3', 'OUTPUT'),
+    'GPTIMER4_CHN3': FuncPinInfo('GPIO7_4', 'OUTPUT'),
+    'CAN0_INT_IN': FuncPinInfo('GPIO7_2', 'INPUT'),
+    'CAN0_RX0': FuncPinInfo('GPIO7_3', 'INPUT'),
+    'MAC0_PHY_INTB': FuncPinInfo('GPIO7_4', 'INPUT'),
+    'UART0_NUARTRTS': FuncPinInfo('GPIO7_5', 'OUTPUT'),
+    'MAC0_TX_CLK': FuncPinInfo('GPIO7_5', 'INPUT'),
+    'UART0_UARTTXD': FuncPinInfo('GPIO7_6', 'OUTPUT'),
+    'MAC0_RX_CLK': FuncPinInfo('GPIO7_6', 'INPUT'),
+    'UART1_NUARTRTS': FuncPinInfo('GPIO7_7', 'OUTPUT'),
+    'MAC0_RXD0': FuncPinInfo('GPIO7_7', 'INPUT'),
+    'MAC0_RXD1': FuncPinInfo('GPIO8_0', 'INPUT'),
+    'MAC0_RXD2': FuncPinInfo('GPIO8_1', 'INPUT'),
+    'MAC0_RXD3': FuncPinInfo('GPIO8_2', 'INPUT'),
+    'UART1_UARTTXD': FuncPinInfo('GPIO8_0', 'OUTPUT'),
+    'UART2_NUARTRTS': FuncPinInfo('GPIO8_1', 'OUTPUT'),
+    'UART2_UARTTXD': FuncPinInfo('GPIO8_2', 'OUTPUT'),
+    'UART3_NUARTRTS': FuncPinInfo('GPIO8_3', 'OUTPUT'),
+    'MAC0_RX_DV': FuncPinInfo('GPIO8_3', 'INPUT'),
+    'MAC0_RX_ER': FuncPinInfo('GPIO8_4', 'INPUT'),
+    'UART3_UARTTXD': FuncPinInfo('GPIO8_4', 'OUTPUT'),
+    'UART4_NUARTRTS': FuncPinInfo('GPIO8_5', 'OUTPUT'),
+    'MAC0_CRS': FuncPinInfo('GPIO8_5', 'INPUT'),
+    'MAC0_COL': FuncPinInfo('GPIO8_6', 'INPUT'),
+    'UART4_UARTTXD': FuncPinInfo('GPIO8_6', 'OUTPUT'),
+    'CAN0_TX0': FuncPinInfo('GPIO8_7', 'OUTPUT'),
+    'MAC0_TXD0': FuncPinInfo('GPIO9_1', 'OUTPUT'),
+    'MAC0_TXD1': FuncPinInfo('GPIO9_2', 'OUTPUT'),
+    'MAC0_TXD2': FuncPinInfo('GPIO9_3', 'OUTPUT'),
+    'MAC0_TXD3': FuncPinInfo('GPIO9_4', 'OUTPUT'),
+    'MAC0_TX_EN': FuncPinInfo('GPIO9_5', 'OUTPUT'),
+    'MAC0_TX_ER': FuncPinInfo('GPIO9_6', 'OUTPUT'),
+    'MAC0_MDC': FuncPinInfo('GPIO9_7', 'OUTPUT'),
+  }
+
+  REV_OUT_EN = [ 'CAN0_TX0' ]
+  CLOCKED_IN = { 'MAC0_MDIO': 'MAC0_MDC' }
+
+  def isDevicePin(pin):
+    return pin in DeviceInfo.DEVICE_PINS
+
+  def isFuncPin(pin):
+    return pin in DeviceInfo.FUNC_PINS
+
+  def gpioNameByIdx(group, bit):
+    return f"GPIO{group}_{bit}"
+
+  def isGpioPin(pin):
+    (i, j) = (-1, -1)
+    if pin[:4] == 'GPIO':
+      idx = pin[4:].split('_')
+      if len(idx) == 2 and str.isnumeric(idx[0]) and str.isnumeric(idx[1]):
+        (i, j) = (int(idx[0]), int(idx[1]))
+    return i >= 0 and i < DeviceInfo.GPIO_COUNT and j >= 0 and j < DeviceInfo.GPIO_BITS and DeviceInfo.gpioNameByIdx(i, j) == pin
+
+  def isDesignPin(pin):
+    return DeviceInfo.isFuncPin(pin) or DeviceInfo.isGpioPin(pin)
+
+class DesignInfo:
+  HSECLK_FREQ = 8
+  SYSCLK_FREQ = 100
+  BUSCLK_FREQ = None
+  USBCLK_FREQ = 60
+  MACCLK_FREQ = 25
+  PLLINCLK_FREQ = None
+  USB0_MODE = None # Host or device or OTG
+  MAC0_MODE = None # MII or RMII
+  PLLCLK_FREQ = [None] * 5
+  PLLCLK_PHASE = [0] * 5
+  GCLK_ENA = "1'b1"
+  TEST_MODE = "2'b0"
+
+  SYS_CLK = "sys_clk"
+  SYS_GCK = "sys_gck"
+  BUS_CLK = "bus_clk"
+  USB_CLK = "usb0_xcvr_clk"
+  MAC_CLK = "mac_clk_out"
+
+  PIN_HSE = "PIN_HSE"
+  PIN_HSI = "PIN_HSI"
+  PIN_OSC = "PIN_OSC"
+
+  SYS_STOP = "sys_ctrl_stop"
+  SYS_RSTN = "sys_resetn"
+  SYS_CLK_SRC = "sys_ctrl_clkSource"
+
+  PLL_ENABLE = "PLL_ENABLE"
+  PLL_LOCK = "PLL_LOCK"
+  PLL_CLKIN = "PLL_CLKIN"
+  PLL_CLKOUT = "PLL_CLKOUT"
+  PLL_GCLK = "PLL_GCLK"
+  SYS_CLKOUT = "SYS_CLKOUT"
+  GND = "GND"
+  VCC = "VCC"
+  EXT_INT = "EXT_INT"
+
+  USB0_ID = "USB0_ID"
+  USB0_CLK = "USB0_CLK"
+  PIN_USB0_DP = "PIN_71"
+  PIN_USB0_DM = "PIN_70"
+
+  MAC0_ENABLE_PIN = "MAC0_RXD0"    # MAC0 is enabled if this pin is used
+  MAC0_MII_PIN    = "MAC0_RXD2"    # MAC0 is working under MII mode if this pin is used
+  MAC0_CLK_PIN    = "MAC0_CLK_OUT" # MAC0 output clock pin
+  MAC0_TX_CLK_PIN = "MAC0_TX_CLK"
+  MAC0_RX_CLK_PIN = "MAC0_RX_CLK"
+
+  class PinInfo:
+    def __init__(self, pin, func, gpio, dir, en):
+      self.pin  = pin  # Device pin
+      self.func = func # Function, if pin is not used as GPIO
+      self.gpio = gpio # GPIO or shared GPIO
+      self.dir  = dir  # Direction
+      self.en   = en   # Output enable
+
+    # Key is GPIO for GPIO and shared GPIO pins, and function for non-GPIO pins. Duplicate keys can exist when 2
+    # alternative functions are used for the same GPIO, one as input and the other as output
+    def key(self):
+      return self.gpio if len(self.gpio) else self.func
+
+  DESIGN_PINS = []
+  REV_OUT_EN = []
+  IP_PINS = []
+  IP_WIRES = []
+  def addPin(func, pin, macro_name = ""):
+    (pin, dir, en)  = (pin + "::").split(':')[:3]
+    # If the function pin is not valid, it's assumed to be an IP pin connected to the top level. If the device pin is 
+    # not valid, it's assumed to be a MCU function pin connected to the IP. Error out if both are not valid.
+    if DeviceInfo.isGpioPin(func):
+      gpio = func
+      dir  = dir or PinDir.INOUT
+    elif DeviceInfo.isFuncPin(func):
+      gpio = DeviceInfo.FUNC_PINS[func].gpio
+      dir  = dir or DeviceInfo.FUNC_PINS[func].dir
+      # For a uni-direction function pin, specified direction must match the function pin's.
+      if dir != DeviceInfo.FUNC_PINS[func].dir and not PinDir.isInout(DeviceInfo.FUNC_PINS[func].dir):
+        ErrorOut(f"Wrong direction {dir} specified for function pin {func}")
+    else:
+      gpio = ''
+      dir  = dir or PinDir.INOUT
+      if not PinDir.isInput(dir) and not PinDir.isOutput(dir):
+        ErrorOut(f"Invalid direction {dir} specified for pin {pin}")
+      if macro_name:
+        DesignInfo.IP_PINS.append(PinWire(func, pin, dir))
+      else:
+        Warn(f"Top level pin {func} (assigned to {pin}) is ignored because no IP macro is specified")
+        return
+
+    if not DeviceInfo.isDevicePin(pin):
+      if gpio or DeviceInfo.isFuncPin(func):
+        if macro_name:
+          DesignInfo.IP_WIRES.append(pin)
+        else:
+          Warn(f"IP pin {pin} is ignored because no IP macro is specified")
+          return
+      else:
+        ErrorOut(f"{pin} is not a valid device pin and {func} is not a valid function!")
+
+    # Multiple output (including inout) function pins cannot be assigned to the same device pin. However, multiple input 
+    # function pins can be assigned to the same device pin, which means multiple loads driven by that device pin.
+    if PinDir.isOutput(dir):
+      func_pins = [info.func for info in DesignInfo.DESIGN_PINS if info.pin == pin and PinDir.isOutput(info.dir)]
+      if len(func_pins):
+        ErrorOut(f"{pin} is used for both {func} and {func_pins[0]}")
+    elif not PinDir.isInput(dir):
+      ErrorOut(f"Wrong direction {dir} specified for pin {pin}")
+
+    pin_info = DesignInfo.PinInfo(pin, func, gpio, dir, en)
+    for info in DesignInfo.DESIGN_PINS:
+      if info.key() == pin_info.key():
+        if func == info.func and PinDir.isInput(dir) and PinDir.isInput(info.dir):
+          # Input (including inout) function pins cannot be assigned to more than 1 device pins. However, output function 
+          # pins can be assigned to multiple device pins, which means multiple loads driven by that output.
+          ErrorOut(f"{func} is assigned to both {pin} and {info.pin}!")
+
+    DesignInfo.DESIGN_PINS.append(pin_info)
+    if pin_info.func in DeviceInfo.REV_OUT_EN:
+      DesignInfo.REV_OUT_EN.append(pin_info.pin)
+
+  def devicePins():
+    return set(info.pin for info in DesignInfo.DESIGN_PINS)
+
+class BusInfo:
+  def __init__(self, name, idx):
+    self.name = name
+    self.idx  = idx
+
+def bus_info(pin):
+  (name, idx) = f"{pin}[".split("[")[:2]
+  (idx, _) = f"{idx}]".split("]")[:2]
+  return BusInfo(name, int(idx) if str.isdigit(idx) else 0)
+
+class PinWire:
+  def __init__(self, pin, wire = "", dir = PinDir.INOUT, width = 1, default = 0):
+    self.pin     = pin
+    self.wire    = wire or pin
+    self.dir     = dir
+    self.width   = width
+    self.default = default
+
+  def __eq__(self, other):
+    return self.pin == other.pin
+
+  # Consolicate bus pins
+  def consolidate(pin_wires: list):
+    bused_pin_wires = []
+    for (pin_name, pw_group) in itertools.groupby(sorted(pin_wires, key=lambda pw: bus_info(pw.pin).name), lambda pw: bus_info(pw.pin).name):
+      pw_list = list(pw_group)
+      for pw in pw_list:
+        if pin_name == pw.pin:
+          bused_pin_wires.append(pw)
+        else:
+          max_idx = max([bus_info(p.pin).idx for p in pw_list])
+          if max_idx > len(pw_list) - 1:
+            ErrorOut(f"The index of pin {pin_name}[{max_idx}] is too large for the bus")
+          wires = [x.wire for x in reversed(sorted(pw_list, key=lambda p: bus_info(p.pin).idx))]
+          bused_pin_wires.append(PinWire(pin_name, '{' + ', '.join(wires) + '}', pw.dir, len(pw_list)))
+          break
+    return bused_pin_wires
+
+def strip_heredoc(text):
+  indent = len(min(re.findall('\n[ \t]*(?=\\S)', text) or ['']))
+  pattern = r'\n[ \t]{%d}' % (indent - 1)
+  return re.sub(pattern, '\n', text)
+
+def pin_post(pin, post, flatten = False):
+  bus = bus_info(pin)
+  if flatten:
+    return bus.name + post + (f"__{bus.idx}__" if bus.name != pin else "")
+  else:
+    return bus.name + post + (f"[{bus.idx}]" if bus.name != pin else "")
+
+def pin_input(pin, flatten = False):
+  return pin_post(pin, "_in", flatten)
+
+def pin_output_data(pin, flatten = False):
+  return pin_post(pin, "_out_data", flatten)
+
+def pin_output_en(pin, flatten = False):
+  return pin_post(pin, "_out_en", flatten)
+
+def check_device(device):
+  if not device in CHIP_INFO.keys():
+    ErrorOut(f"Device {device} is not found!")
+  DeviceInfo.NAME = device
+  DeviceInfo.DEVICE_PINS = CHIP_INFO[device]
+
+def check_input(ve_name, macro_name):
+  try:
+    ve_file = open(ve_name, 'r', encoding='UTF-8')
+  except:
+    ErrorOut(f"cannot open file {ve_name}")
+
+  for (l, line) in enumerate(ve_file.readlines()):
+    words = re.sub(r'#.*', '', line.strip()).split()
+    if len(words) == 0:
+      continue
+    elif len(words) != 2:
+      ErrorOut(f"wrong format in file {ve_name}, line {l+1}")
+
+    if words[0] == "HSECLK":
+      DesignInfo.HSECLK_FREQ = float(words[1])
+    elif words[0] == "SYSCLK":
+      DesignInfo.SYSCLK_FREQ = float(words[1])
+    elif words[0] == "USB0":
+      DesignInfo.USB0_MODE = words[1]
+    elif words[0] == "BUSCLK":
+      DesignInfo.BUSCLK_FREQ = float(words[1])
+    elif words[0] == "PLLINCLK":
+      DesignInfo.PLLINCLK_FREQ = float(words[1])
+    elif re.match(re.compile("^PLLCLK[0-4]$"), words[0]):
+      DesignInfo.PLLCLK_FREQ[int(words[0][6])] = float(words[1])
+    elif re.match(re.compile("^PLLCLK[0-4]_PHASE$"), words[0]):
+      phase = float(words[1])
+      phase -= int(phase / 360) * 360
+      DesignInfo.PLLCLK_PHASE[int(words[0][6])] = phase if phase >= 0 else phase + 360
+    elif words[0] == "GCLK_ENA":
+      DesignInfo.GCLK_ENA = words[1]
+    elif words[0] == "TEST_MODE":
+      DesignInfo.TEST_MODE = words[1]
+    else:
+      # Pin assigments
+      DesignInfo.addPin(words[0], words[1], macro_name)
+  ve_file.close()
+
+PFD_MAX = 4
+VCO_MIN = 600
+VCO_MAX = 1250
+VCO_LOW = VCO_MIN >> 1
+
+def get_pll_phase_config(clkdiv, phase):
+  shift = phase * clkdiv / 360
+  clkout_del = int(shift)
+  clkout_phase = int((shift - clkout_del) * 8 + 0.5)
+  return [clkout_del, clkout_phase]
+
+def get_pll_phase_val(freq, phase):
+  return int(1e6 / freq * phase / 360 + 0.5) if freq else 0
+
+def get_pll_phase_str(clkout_div, clkout_del, clkout_phase):
+  phase = (clkout_del + clkout_phase / 8) * 360 / clkout_div if clkout_div else 0
+  return f", phase: {phase} deg" if phase else ""
+
+def get_pll_phase_err(vco):
+  phase_err = 0
+  for i in range(0, 5):
+    if DesignInfo.PLLCLK_FREQ[i] and DesignInfo.PLLCLK_PHASE[i]:
+      clk_div = int(vco / DesignInfo.PLLCLK_FREQ[i])
+      [clk_del, clk_phase] = get_pll_phase_config(clk_div, DesignInfo.PLLCLK_PHASE[i])
+      phase_err += abs((clk_del + clk_phase / 8) / clk_div * 360 - DesignInfo.PLLCLK_PHASE[i])
+  return phase_err
+
+def get_pll_vco(frequencies):
+  phase_err = 1e9
+  vco = 0
+  for v in range(VCO_LOW, VCO_MAX):
+    freq_err = False
+    for freq in frequencies:
+      if freq:
+        div = int(v / freq + 0.5)
+        if abs(freq - v / div) / freq > 1e-5:
+          freq_err = True
+          break
+    if freq_err:
+      continue
+    err = get_pll_phase_err(v)
+    if err < phase_err:
+      phase_err = err
+      vco = v
+  if not vco:
+    ErrorOut(f"Cannot find valid VCO for input frequencies {' '.join(str(f) for f in frequencies)}")
+  return vco
+
+def check_pll(mac_clk_out):
+  if DesignInfo.PLLCLK_FREQ[0]:
+    Warn(f"PLLCLK0 frequency is ignored, {DesignInfo.SYSCLK_FREQ}MHz from SYSCLK is used")
+  DesignInfo.PLLCLK_FREQ[0] = DesignInfo.SYSCLK_FREQ
+  if DesignInfo.USB0_MODE:
+    if DesignInfo.PLLCLK_FREQ[1]:
+      Warn(f"PLLCLK1 frequency is ignored, {DesignInfo.USBCLK_FREQ}MHz from USB is used")
+    DesignInfo.PLLCLK_FREQ[1] = DesignInfo.USBCLK_FREQ
+  if DesignInfo.MAC0_MODE and mac_clk_out:
+    if DesignInfo.PLLCLK_FREQ[2]:
+      Warn(f"PLLCLK2 frequency is ignored, {DesignInfo.MACCLK_FREQ}MHz from MAC is used")
+    DesignInfo.PLLCLK_FREQ[2] = DesignInfo.MACCLK_FREQ
+
+  bus_div = 1
+  if DesignInfo.BUSCLK_FREQ:
+    bus_div = int(DesignInfo.SYSCLK_FREQ / DesignInfo.BUSCLK_FREQ + 0.5)
+    if abs(DesignInfo.SYSCLK_FREQ - bus_div * DesignInfo.BUSCLK_FREQ) > 0.1:
+      ErrorOut(f"BUSCLK frequency {DesignInfo.BUSCLK_FREQ} cannot be derived from SYSCLK frequency {DesignInfo.SYSCLK_FREQ}")
+    if DesignInfo.PLLCLK_FREQ[3]:
+      Warn(f"PLLCLK3 frequency is ignored, {DesignInfo.BUSCLK_FREQ}MHz from BUSCLK is used")
+    DesignInfo.PLLCLK_FREQ[3] = DesignInfo.BUSCLK_FREQ
+
+  if not DesignInfo.PLLINCLK_FREQ:
+    DesignInfo.PLLINCLK_FREQ = DesignInfo.HSECLK_FREQ
+  clkin_div = int((DesignInfo.PLLINCLK_FREQ - 1) / PFD_MAX) + 1
+  frequencies = [DesignInfo.PLLINCLK_FREQ / clkin_div] + DesignInfo.PLLCLK_FREQ
+  vco = get_pll_vco(frequencies)
+  clkfb_div = int(vco * clkin_div / DesignInfo.PLLINCLK_FREQ + 0.5)
+  clkout_div = [0] * 5
+  clkout_del = [0] * 5
+  clkout_phase = [0] * 5
+  post_div = 1 if vco < VCO_MIN else 0
+  for i in range(0, 5):
+    if DesignInfo.PLLCLK_FREQ[i]:
+      clkout_div[i] = int(vco / DesignInfo.PLLCLK_FREQ[i] + 0.5)
+      if clkout_div[i] > 512:
+        ErrorOut(f"PLL output clock{i}'s frequency is too low")
+  for i in range(0, 5):
+    [clkout_del[i], clkout_phase[i]] = get_pll_phase_config(clkout_div[i], DesignInfo.PLLCLK_PHASE[i])
+  return [vco, clkin_div, clkfb_div, clkout_div, clkout_del, clkout_phase, post_div]
+
+def get_pll_div(div: int):
+  divh = (div >> 1) - 1   if div > 1 else 255
+  divl = (div - divh) - 2 if div > 1 else 255
+  trim = 0 if divh == divl else 1
+  byp  = 1 if div == 1 else 0
+  return [divh, divl, trim, byp]
+
+def write_inst(file, module_name, inst_name, pin_wires: list[PinWire]):
+  max_pin_len  = max(len(pw.pin)  for pw in pin_wires)
+  max_wire_len = max(len(pw.wire) for pw in pin_wires)
+  pin_wires = [f"  .{pw.pin:{max_pin_len}}({pw.wire:{max_wire_len}})" for pw in pin_wires]
+
+  file.write(f"\n{module_name} {inst_name}(\n")
+  file.write(",\n".join(pin_wires))
+  file.write("\n);\n")
+
+def write_macro_tmpl(macro_file: TextIO, macro_module: str, ip_pin_wires: list[PinWire]):
+  macro_file.write(f"module {macro_module} (\n")
+  pin_defs = []
+  for pin_wire in ip_pin_wires:
+    width = f"[{pin_wire.width-1}:0]" if pin_wire.width > 1 else "tri1" if pin_wire.default != 0 else ""
+    pin_defs.append(f"  {pin_wire.dir.lower():6} {width:6} {pin_wire.pin}")
+  macro_file.write(",\n".join(pin_defs))
+  macro_file.write("\n);\n")
+  macro_file.write("endmodule\n")
+
+def write_buf(file: TextIO, for_synthesis: bool, input: str, output: str, is_global: bool = False):
+  if for_synthesis and is_global:
+    file.write(strip_heredoc(f"""
+      global \\{output}_gclk (
+        .in({input}),
+        .out({output})
+      );\n"""))
+  else:
+    file.write(f"\nassign {output} = {input};\n")
+
+def write_vlog(TOP, vlog_name, macro_name, for_synthesis):
+  try:
+    vlog_file = open(vlog_name or os.devnull, 'w')
+  except:
+    ErrorOut(f"cannot create file {vlog_name}")
+
+  macro_file = None
+  if macro_name:
+    try:
+      if not for_synthesis:
+        macro_file = open(macro_name, 'r')
+      else:
+        tmpl_name = macro_name
+        if os.path.exists(tmpl_name):
+          # Use another name to avoid overwriting the existing file
+          names = list(os.path.splitext(tmpl_name))
+          names[0] += "_tmpl"
+          tmpl_name = ''.join(names)
+        Info(f"Creating template file {tmpl_name}")
+        macro_file = open(tmpl_name, 'w')
+    except:
+      ErrorOut(f"cannot open file {macro_name}")
+
+  # USB
+  usb0_id = None
+  usb0_clk = None
+  for info in DesignInfo.DESIGN_PINS:
+    if info.func == DesignInfo.USB0_ID:
+      usb0_id = pin_input(info.pin)
+      DesignInfo.USB0_MODE = 'OTG'
+    if info.func == DesignInfo.USB0_CLK:
+      usb0_clk = pin_input(info.pin)
+  if not usb0_id and DesignInfo.USB0_MODE:
+    if DesignInfo.USB0_MODE.lower() == 'host' :
+      usb0_id = "1'b0"
+    elif DesignInfo.USB0_MODE.lower() == 'device':
+      usb0_id = "1'b1"
+    else:
+      ErrorOut(f"USB mode {DesignInfo.USB0_MODE} is invalid without a valid ID pin")
+  if not usb0_id:
+    usb0_id = "1'b1";
+  if DesignInfo.USB0_MODE:
+    for pin in DesignInfo.devicePins():
+      if pin == DesignInfo.PIN_USB0_DP or pin == DesignInfo.PIN_USB0_DM:
+        ErrorOut(f"when USB is used, {DesignInfo.PIN_USB0_DP} and {DesignInfo.PIN_USB0_DM} must be reserved for DP and DM")
+
+  # MAC
+  mac_clk_out = mac_tx_clk = mac_rx_clk = None
+  for info in DesignInfo.DESIGN_PINS:
+    if info.func == DesignInfo.MAC0_MII_PIN:
+      DesignInfo.MAC0_MODE = 'MII'
+      DesignInfo.MACCLK_FREQ = 25
+    elif info.func == DesignInfo.MAC0_ENABLE_PIN:
+      if not DesignInfo.MAC0_MODE:
+        DesignInfo.MAC0_MODE = 'RMII'
+        DesignInfo.MACCLK_FREQ = 50
+    elif info.func == DesignInfo.MAC0_CLK_PIN:
+      mac_clk_out = info.pin
+    elif info.func == DesignInfo.MAC0_RX_CLK_PIN:
+      mac_rx_clk = info.pin
+    elif info.func == DesignInfo.MAC0_TX_CLK_PIN:
+      mac_tx_clk = info.pin
+  if DesignInfo.MAC0_MODE:
+    if mac_rx_clk and not mac_tx_clk:
+      DesignInfo.addPin(DesignInfo.MAC0_TX_CLK_PIN, mac_rx_clk)
+      Info(f"{DesignInfo.MAC0_TX_CLK_PIN} is connected using {mac_rx_clk}, the same as {DesignInfo.MAC0_RX_CLK_PIN}")
+    elif mac_tx_clk and not mac_rx_clk:
+      DesignInfo.addPin(DesignInfo.MAC0_RX_CLK_PIN, mac_tx_clk)
+      Info(f"{DesignInfo.MAC0_RX_CLK_PIN} is connected using {mac_tx_clk}, the same as {DesignInfo.MAC0_TX_CLK_PIN}")
+    if not mac_tx_clk and not mac_rx_clk:
+      if mac_clk_out:
+        DesignInfo.addPin(DesignInfo.MAC0_TX_CLK_PIN, mac_clk_out)
+        DesignInfo.addPin(DesignInfo.MAC0_RX_CLK_PIN, mac_clk_out)
+        Info(f"{DesignInfo.MAC0_TX_CLK_PIN} is connected using {mac_clk_out}, the same as {DesignInfo.MAC0_CLK_PIN}")
+        Info(f"{DesignInfo.MAC0_RX_CLK_PIN} is connected using {mac_clk_out}, the same as {DesignInfo.MAC0_CLK_PIN}")
+      else:
+        ErrorOut(f"At least one of {DesignInfo.MAC0_TX_CLK_PIN}, {DesignInfo.MAC0_RX_CLK_PIN}, and {DesignInfo.MAC0_CLK_PIN} should be assigned when MAC is enabled")
+
+  # Other function pins
+  pll_lock = None
+  pll_clkin = DesignInfo.PIN_HSE
+  pll_clkouts = [None] * 5
+  sys_clkout = None
+  clkouts = { DesignInfo.PIN_HSE: None, DesignInfo.PIN_HSI: None, DesignInfo.PIN_OSC: None }
+  gnd = []
+  vcc = []
+  ext_ints = [None] * 8
+  io_clks = {}
+  for info in DesignInfo.DESIGN_PINS:
+    if info.func == DesignInfo.PLL_LOCK:
+      pll_lock = info.pin
+    elif info.func == DesignInfo.PLL_CLKIN:
+      pll_clkin = info.pin
+    elif info.func[:-1] == DesignInfo.PLL_CLKOUT:
+      pll_clkouts[int(info.func[-1])] = info.pin
+    elif info.func == DesignInfo.SYS_CLKOUT:
+      sys_clkout = info.pin
+    elif info.func == DesignInfo.GND:
+      gnd.append(info.pin)
+    elif info.func == DesignInfo.VCC:
+      vcc.append(info.pin)
+    elif info.func[:-1] == DesignInfo.EXT_INT:
+      ext_ints[int(info.func[-1])] = info.pin
+    elif info.func in DeviceInfo.CLOCKED_IN.values():
+      io_clks[info.func] = pin_input(info.pin) if PinDir.isInput(DeviceInfo.FUNC_PINS[info.func].dir) else pin_output_data(info.pin)
+    elif info.func == DesignInfo.PIN_HSE + "_OUT":
+      clkouts[DesignInfo.PIN_HSE] = info.pin
+    elif info.func == DesignInfo.PIN_HSI + "_OUT":
+      clkouts[DesignInfo.PIN_HSI] = info.pin
+    elif info.func == DesignInfo.PIN_OSC + "_OUT":
+      clkouts[DesignInfo.PIN_OSC] = info.pin
+
+  DesignInfo.DESIGN_PINS.append(DesignInfo.PinInfo(DesignInfo.PIN_HSE, 'HSE clock', '', PinDir.INPUT, ''))
+  DesignInfo.DESIGN_PINS.append(DesignInfo.PinInfo(DesignInfo.PIN_HSI, 'HSI clock', '', PinDir.INPUT, ''))
+  DesignInfo.DESIGN_PINS.append(DesignInfo.PinInfo(DesignInfo.PIN_OSC, 'OSC clock', '', PinDir.INPUT, ''))
+  top_pins = []
+  ip_wires = []
+  for pin, group in itertools.groupby(sorted(DesignInfo.DESIGN_PINS, key=lambda info: info.pin), lambda info: info.pin):
+    dir = None
+    functions = []
+    for info in group:
+      # Each group of the same device pin can have multiple input design pins, but only 1 output or inout pin
+      if not dir:
+        dir = info.dir
+      elif dir != info.dir:
+        dir = PinDir.INOUT
+      functions.append(info.func)
+      if info.gpio:
+        functions.append(info.gpio)
+    if pin in DesignInfo.IP_WIRES:
+      ip_wires.append((pin, dir))
+    else:
+      top_pins.append((pin, dir, functions))
+
+  # Module declaration
+  vlog_file.write(f"`timescale 1 ps/ 1 ps\n\n")
+  vlog_file.write(f"module {TOP} (\n")
+  vlog_file.write("  " + ",\n  ".join(list(zip(*top_pins))[0]) + "\n);\n")
+  
+  # Pin declaration
+  for pin, dir, functions in top_pins:
+    vlog_file.write(f"{dir.lower()} {pin};\n")
+
+  # IOBUF
+  declared_wires = set()
+  for pin, dir, functions in top_pins:
+    pin_out_data = pin_output_data(pin) if PinDir.isOutput(dir) else "1'b0"
+    pin_out_en   = pin_output_en(pin)   if PinDir.isOutput(dir) else "1'b0"
+    pin_in       = pin_input(pin)       if PinDir.isInput(dir)  else ""
+    pin_in_clk   = None
+    is_ip_pin    = False
+    for func in functions:
+      if PinWire(func, pin, dir) in DesignInfo.IP_PINS:
+        is_ip_pin = True
+        break
+      if func in DeviceInfo.CLOCKED_IN:
+        pin_in_clk = io_clks[DeviceInfo.CLOCKED_IN[func]]
+
+    # IP pins are handled in IP. They do not need top level IO buffers.
+    if is_ip_pin:
+      continue
+
+    if for_synthesis:
+      vlog_file.write(f"\n// {', '.join(functions)}\n")
+      if PinDir.isInput(dir):
+        if pin_in_clk:
+          if pin_in_clk not in declared_wires:
+            vlog_file.write(f"wire {pin_in_clk};\n")
+            declared_wires.add(pin_in_clk)
+          vlog_file.write(strip_heredoc(f"""reg {pin_in};
+            always @ (posedge {pin_in_clk})
+              {pin_in} <= {pin};
+            """))
+        else:
+          vlog_file.write(f"assign {pin_in} = {pin};\n")
+      if PinDir.isOutput(dir):
+        for wire in [pin_out_en, pin_out_data]:
+          if wire not in declared_wires:
+            vlog_file.write(f"wire {wire};\n")
+            declared_wires.add(wire)
+        vlog_file.write(f"assign {pin} = {pin_out_en} ? {pin_out_data} : 1'bz;\n")
+    else:
+      vlog_file.write(strip_heredoc(f"""
+        // Location: {pin}
+        alta_rio {pin}_iobuf (
+            .datain   ({pin_out_data}),
+            .oe       ({pin_out_en}),
+            .outclk   (1'b0),
+            .outclkena(1'b0),
+            .inclk    ({pin_in_clk if pin_in_clk else "1'b0"}),
+            .inclkena ({"1'b1" if pin_in_clk else "1'b0"}),
+            .areset   (1'b0),
+            .sreset   (1'b0),
+            .combout  ({"" if pin_in_clk else pin_in}),
+            .regout   ({pin_in if pin_in_clk else ""}),
+            .padio    ({pin})); // {', '.join(functions)}
+        """))
+
+  # PLL
+  [vco, clkin_div, clkfb_div, clkout_div, clkout_del, clkout_phase, post_div] = check_pll(mac_clk_out)
+  [clkin_divh,   clkin_divl,   clkin_trim,   clkin_byp  ] = get_pll_div(clkin_div)
+  [clkfb_divh,   clkfb_divl,   clkfb_trim,   clkfb_byp  ] = get_pll_div(clkfb_div)
+  [clkout0_divh, clkout0_divl, clkout0_trim, clkout0_byp] = get_pll_div(clkout_div[0])
+  [clkout1_divh, clkout1_divl, clkout1_trim, clkout1_byp] = get_pll_div(clkout_div[1])
+  [clkout2_divh, clkout2_divl, clkout2_trim, clkout2_byp] = get_pll_div(clkout_div[2])
+  [clkout3_divh, clkout3_divl, clkout3_trim, clkout3_byp] = get_pll_div(clkout_div[3])
+  [clkout4_divh, clkout4_divl, clkout4_trim, clkout4_byp] = get_pll_div(clkout_div[4])
+  vlog_file.write(f"\nwire [4:0] {DesignInfo.PLL_CLKOUT};")
+  wire = "(* keep = 1 *) wire" if for_synthesis else "wire"
+  vlog_file.write(strip_heredoc(f"""
+    {wire}       {DesignInfo.SYS_RSTN};
+    {wire}       {DesignInfo.SYS_STOP};
+    {wire} [1:0] {DesignInfo.SYS_CLK_SRC};
+    {wire}       {DesignInfo.PLL_ENABLE};
+    {wire}       {DesignInfo.PLL_LOCK};
+    """))
+  if for_synthesis:
+    vlog_file.write(strip_heredoc(f"""
+    altpll pll_inst (
+      .areset(!{DesignInfo.PLL_ENABLE}),
+      .inclk ({pin_input(pll_clkin)}),
+      .clk   ({DesignInfo.PLL_CLKOUT}),
+      .locked({DesignInfo.PLL_LOCK}));
+    defparam pll_inst.bandwidth_type          = "AUTO";
+    defparam pll_inst.clk0_divide_by          = {clkin_div * clkout_div[0]};
+    defparam pll_inst.clk0_multiply_by        = {clkfb_div};
+    defparam pll_inst.clk0_phase_shift        = "{get_pll_phase_val(DesignInfo.PLLCLK_FREQ[0], DesignInfo.PLLCLK_PHASE[0])}";
+    defparam pll_inst.clk1_divide_by          = {clkin_div * (clkout_div[1] or clkout_div[0])};
+    defparam pll_inst.clk1_multiply_by        = {clkfb_div};
+    defparam pll_inst.clk1_phase_shift        = "{get_pll_phase_val(DesignInfo.PLLCLK_FREQ[1], DesignInfo.PLLCLK_PHASE[1])}";
+    defparam pll_inst.clk2_divide_by          = {clkin_div * (clkout_div[2] or clkout_div[0])};
+    defparam pll_inst.clk2_multiply_by        = {clkfb_div};
+    defparam pll_inst.clk2_phase_shift        = "{get_pll_phase_val(DesignInfo.PLLCLK_FREQ[2], DesignInfo.PLLCLK_PHASE[2])}";
+    defparam pll_inst.clk3_divide_by          = {clkin_div * (clkout_div[3] or clkout_div[0])};
+    defparam pll_inst.clk3_multiply_by        = {clkfb_div};
+    defparam pll_inst.clk3_phase_shift        = "{get_pll_phase_val(DesignInfo.PLLCLK_FREQ[3], DesignInfo.PLLCLK_PHASE[3])}";
+    defparam pll_inst.clk4_divide_by          = {clkin_div * (clkout_div[4] or clkout_div[0])};
+    defparam pll_inst.clk4_multiply_by        = {clkfb_div};
+    defparam pll_inst.clk4_phase_shift        = "{get_pll_phase_val(DesignInfo.PLLCLK_FREQ[4], DesignInfo.PLLCLK_PHASE[4])}";
+    defparam pll_inst.compensate_clock        = "CLK0";
+    defparam pll_inst.inclk0_input_frequency  = {int(1000000/DesignInfo.PLLINCLK_FREQ)};
+    defparam pll_inst.lpm_type                = "altpll";
+    defparam pll_inst.operation_mode          = "NORMAL";
+    defparam pll_inst.pll_type                = "AUTO";
+    defparam pll_inst.port_areset             = "PORT_USED";
+    defparam pll_inst.port_inclk0             = "PORT_USED";
+    defparam pll_inst.port_locked             = "PORT_USED";
+    defparam pll_inst.port_clk0               = "PORT_USED";
+    defparam pll_inst.port_clk1               = "{"PORT_USED" if clkout_div[1] else "PORT_UNUSED"}";
+    defparam pll_inst.port_clk2               = "{"PORT_USED" if clkout_div[2] else "PORT_UNUSED"}";
+    defparam pll_inst.port_clk3               = "{"PORT_USED" if clkout_div[3] else "PORT_UNUSED"}";
+    defparam pll_inst.port_clk4               = "{"PORT_USED" if clkout_div[4] else "PORT_UNUSED"}";
+    defparam pll_inst.width_clock             = 5;
+    """))
+  else:
+    vlog_file.write(strip_heredoc(f"""
+    alta_pllve pll_inst (
+      .clkin({pin_input(pll_clkin)}),
+      .pfden(1'b1),
+      .resetn({DesignInfo.PLL_ENABLE}),
+      .phasecounterselect(3'b0),
+      .phaseupdown(1'b0),
+      .phasestep(1'b0),
+      .scanclk(1'b0),
+      .scanclkena(1'b0),
+      .scandata(1'b0),
+      .configupdate(1'b0),
+      .clkfb(pll_clkfb),
+      .clkfbout(pll_clkfb),
+      .clkout0({DesignInfo.PLL_CLKOUT}[0]),
+      .clkout1({DesignInfo.PLL_CLKOUT}[1]),
+      .clkout2({DesignInfo.PLL_CLKOUT}[2]),
+      .clkout3({DesignInfo.PLL_CLKOUT}[3]),
+      .clkout4({DesignInfo.PLL_CLKOUT}[4]),
+      .lock   ({DesignInfo.PLL_LOCK}));
+    defparam pll_inst.CLKIN_FREQ      = "{DesignInfo.PLLINCLK_FREQ}";
+    defparam pll_inst.CLKIN_HIGH      = 8'd{clkin_divh};
+    defparam pll_inst.CLKIN_LOW       = 8'd{clkin_divl};
+    defparam pll_inst.CLKIN_TRIM      = 1'b{clkin_trim};
+    defparam pll_inst.CLKIN_BYPASS    = 1'b{clkin_byp};
+    defparam pll_inst.CLKFB_HIGH      = 8'd{clkfb_divh};
+    defparam pll_inst.CLKFB_LOW       = 8'd{clkfb_divl};
+    defparam pll_inst.CLKFB_TRIM      = 1'b{clkfb_trim};
+    defparam pll_inst.CLKFB_BYPASS    = 1'b{clkfb_byp};
+    defparam pll_inst.CLKDIV0_EN      = 1'b1;
+    defparam pll_inst.CLKDIV1_EN      = 1'b{1 if clkout_div[1] else 0};
+    defparam pll_inst.CLKDIV2_EN      = 1'b{1 if clkout_div[2] else 0};
+    defparam pll_inst.CLKDIV3_EN      = 1'b{1 if clkout_div[3] else 0};
+    defparam pll_inst.CLKDIV4_EN      = 1'b{1 if clkout_div[4] else 0};
+    defparam pll_inst.CLKOUT0_HIGH    = 8'd{clkout0_divh};
+    defparam pll_inst.CLKOUT0_LOW     = 8'd{clkout0_divl};
+    defparam pll_inst.CLKOUT0_TRIM    = 1'b{clkout0_trim};
+    defparam pll_inst.CLKOUT0_BYPASS  = 1'b{clkout0_byp};
+    defparam pll_inst.CLKOUT0_DEL     = 8'd{clkout_del[0]};
+    defparam pll_inst.CLKOUT0_PHASE   = 3'd{clkout_phase[0]};
+    defparam pll_inst.CLKOUT1_HIGH    = 8'd{clkout1_divh};
+    defparam pll_inst.CLKOUT1_LOW     = 8'd{clkout1_divl};
+    defparam pll_inst.CLKOUT1_TRIM    = 1'b{clkout1_trim};
+    defparam pll_inst.CLKOUT1_BYPASS  = 1'b{clkout1_byp};
+    defparam pll_inst.CLKOUT1_DEL     = 8'd{clkout_del[1]};
+    defparam pll_inst.CLKOUT1_PHASE   = 3'd{clkout_phase[1]};
+    defparam pll_inst.CLKOUT2_HIGH    = 8'd{clkout2_divh};
+    defparam pll_inst.CLKOUT2_LOW     = 8'd{clkout2_divl};
+    defparam pll_inst.CLKOUT2_TRIM    = 1'b{clkout2_trim};
+    defparam pll_inst.CLKOUT2_BYPASS  = 1'b{clkout2_byp};
+    defparam pll_inst.CLKOUT2_DEL     = 8'd{clkout_del[2]};
+    defparam pll_inst.CLKOUT2_PHASE   = 3'd{clkout_phase[2]};
+    defparam pll_inst.CLKOUT3_HIGH    = 8'd{clkout3_divh};
+    defparam pll_inst.CLKOUT3_LOW     = 8'd{clkout3_divl};
+    defparam pll_inst.CLKOUT3_TRIM    = 1'b{clkout3_trim};
+    defparam pll_inst.CLKOUT3_BYPASS  = 1'b{clkout3_byp};
+    defparam pll_inst.CLKOUT3_DEL     = 8'd{clkout_del[3]};
+    defparam pll_inst.CLKOUT3_PHASE   = 3'd{clkout_phase[3]};
+    defparam pll_inst.CLKOUT4_HIGH    = 8'd{clkout4_divh};
+    defparam pll_inst.CLKOUT4_LOW     = 8'd{clkout4_divl};
+    defparam pll_inst.CLKOUT4_TRIM    = 1'b{clkout4_trim};
+    defparam pll_inst.CLKOUT4_BYPASS  = 1'b{clkout4_byp};
+    defparam pll_inst.CLKOUT4_DEL     = 8'd{clkout_del[4]};
+    defparam pll_inst.CLKOUT4_PHASE   = 3'd{clkout_phase[4]};
+    defparam pll_inst.FEEDBACK_MODE   = 3'b100;
+    defparam pll_inst.FBDELAY_VAL     = 3'b100;
+    defparam pll_inst.VCO_POST_DIV    = 1'b{post_div};
+    """))
+
+  for i in range(5):
+    if pll_clkouts[i]:
+      write_buf(vlog_file, for_synthesis, f"{DesignInfo.PLL_CLKOUT}[{i}]", pin_output_data(pll_clkouts[i]), True);
+      vlog_file.write(f"assign {pin_output_en(pll_clkouts[i])} = 1'b1;\n")
+  if DesignInfo.USB0_MODE:
+    usb_clk = pin_output_data(pll_clkouts[1]) if pll_clkouts[1] else f"{DesignInfo.PLL_CLKOUT}[1]"
+    write_buf(vlog_file, for_synthesis, usb_clk, DesignInfo.USB_CLK, not pll_clkouts[1]);
+  if mac_clk_out:
+    mac_clk = pin_output_data(pll_clkouts[2]) if pll_clkouts[2] else f"{DesignInfo.PLL_CLKOUT}[2]"
+    write_buf(vlog_file, for_synthesis, mac_clk, DesignInfo.MAC_CLK, not pll_clkouts[2]);
+  bus_clk = pin_output_data(pll_clkouts[3]) if pll_clkouts[3] else DesignInfo.PLL_CLKOUT+'[3]' if DesignInfo.BUSCLK_FREQ else DesignInfo.SYS_GCK
+  vlog_file.write(f"\nwire {DesignInfo.SYS_GCK};")
+  vlog_file.write(f"\nassign {DesignInfo.BUS_CLK} = {bus_clk};\n")
+
+  nl = '\n          '
+  print(strip_heredoc(f"""
+    Design summary:
+      HSE clock: {DesignInfo.HSECLK_FREQ}MHz
+      PLL input: {DesignInfo.PLLINCLK_FREQ}MHz
+      VCO clock: {vco}MHz
+      PLL clock: {round(vco / clkout_div[0], 3)}MHz{get_pll_phase_str(clkout_div[0], clkout_del[0], clkout_phase[0])}
+      USB: {f"enabled, mode: {DesignInfo.USB0_MODE}, clock: {DesignInfo.USBCLK_FREQ}MHz{get_pll_phase_str(clkout_div[1], clkout_del[1], clkout_phase[1])}" if DesignInfo.USB0_MODE else 'disabled'}
+      MAC: {f"enabled, mode: {DesignInfo.MAC0_MODE}, clock: {DesignInfo.MACCLK_FREQ}MHz{f' to PHY via {mac_clk_out}{get_pll_phase_str(clkout_div[2], clkout_del[2], clkout_phase[2])}' if mac_clk_out else ' from PHY'}" if DesignInfo.MAC0_MODE else 'disabled'}"""))
+  for i in range(1, 5):
+    if i == 1 and DesignInfo.USB0_MODE or i == 2 and DesignInfo.MAC0_MODE:
+      continue
+    if DesignInfo.PLLCLK_FREQ[i]:
+      print(f"  PLL clock{i}: {DesignInfo.PLLCLK_FREQ[i]}MHz{get_pll_phase_str(clkout_div[i], clkout_del[i], clkout_phase[i])}")
+  if macro_name:
+    print(strip_heredoc(f"""
+      Macro IP file: {macro_name}
+        Clock: {DesignInfo.BUSCLK_FREQ or DesignInfo.SYSCLK_FREQ}MHz
+        External pins:{''.join(nl + pw.pin for pw in DesignInfo.IP_PINS)}
+        Internal wires:{''.join(nl + pin for (pin, _) in ip_wires)}"""))
+
+  if mac_clk_out:
+    vlog_file.write(strip_heredoc(f"""
+      assign {pin_output_data(mac_clk_out)} = {DesignInfo.MAC_CLK};
+      assign {pin_output_en(mac_clk_out)}   = {DesignInfo.PLL_ENABLE};
+      """))
+
+  if pll_lock:
+    vlog_file.write(strip_heredoc(f"""
+      assign {pin_output_data(pll_lock)} = {DesignInfo.PLL_LOCK};
+      assign {pin_output_en(pll_lock)}   = 1'b1;
+      """))
+  for (clk, pin) in clkouts.items():
+    if pin:
+      vlog_file.write(strip_heredoc(f"""
+        assign {pin_output_data(pin)} = {pin_input(clk)};
+        assign {pin_output_en(pin)}   = 1'b1;
+        """))
+
+  vlog_file.write(strip_heredoc(f"""
+    // Location: BBOX_X22_Y4_N0 FIXED_COORD
+    alta_gclksw gclksw_inst (
+        .resetn({DesignInfo.SYS_RSTN}),
+        .ena   ({DesignInfo.GCLK_ENA}),
+        .clkin0({pin_input(DesignInfo.PIN_HSI)}),
+        .clkin1({pin_input(DesignInfo.PIN_HSE)}),
+        .clkin2({DesignInfo.PLL_CLKOUT}[0]),
+        .clkin3(),
+        .select({DesignInfo.SYS_CLK_SRC}),
+        .clkout({DesignInfo.SYS_CLK}));
+    """))
+#  vlog_file.write(strip_heredoc(f"""
+#        wire {DesignInfo.SYS_CLK} = {DesignInfo.PLL_CLKOUT}[0];
+#    """))
+  if for_synthesis:
+    vlog_file.write(f"assign {DesignInfo.SYS_GCK} = {DesignInfo.SYS_CLK};\n")
+  else:
+    vlog_file.write(strip_heredoc(f"""
+      alta_gclkgen gclksw_gen (
+          .clkin ({DesignInfo.SYS_CLK}),
+          .ena   ({DesignInfo.GCLK_ENA}),
+          .clkout({DesignInfo.SYS_GCK}0));
+
+      // Location: CLKCTRL_G5 FIXED_COORD
+      alta_io_gclk gclksw_gclk (
+          .inclk ({DesignInfo.SYS_GCK}0),
+          .outclk({DesignInfo.SYS_GCK}));
+      """))
+
+  if sys_clkout:
+      vlog_file.write(strip_heredoc(f"""
+        assign {pin_output_data(sys_clkout)} = {DesignInfo.SYS_GCK};
+        assign {pin_output_en(sys_clkout)}   = 1'b1;
+        """))
+  for pin in gnd:
+      vlog_file.write(strip_heredoc(f"""
+        assign {pin_output_data(pin)} = 1'b0;
+        assign {pin_output_en(pin)}   = 1'b1;
+        """))
+  for pin in vcc:
+      vlog_file.write(strip_heredoc(f"""
+        assign {pin_output_data(pin)} = 1'b1;
+        assign {pin_output_en(pin)}   = 1'b1;
+        """))
+
+  def gpio_in(i):
+    return f"gpio{i}_io_in"
+
+  def gpio_out_data(i):
+    return f"gpio{i}_io_out_data"
+
+  def gpio_out_en(i):
+    return f"gpio{i}_io_out_en"
+
+  pin_wires = [
+      PinWire("sys_clk",            DesignInfo.SYS_CLK),
+      PinWire("sys_ctrl_stop",      DesignInfo.SYS_STOP),
+      PinWire("sys_ctrl_clkSource", DesignInfo.SYS_CLK_SRC),
+      PinWire("resetn_out",         DesignInfo.SYS_RSTN),
+      PinWire("sys_ctrl_pllEnable", DesignInfo.PLL_ENABLE),
+      PinWire("sys_ctrl_pllReady",  DesignInfo.PLL_LOCK),
+      PinWire("ext_resetn",         "1'b1"),
+      PinWire("test_mode",          DesignInfo.TEST_MODE),
+      PinWire("usb0_xcvr_clk",      usb0_clk if usb0_clk else DesignInfo.USB_CLK),
+      PinWire("usb0_id",            usb0_id),
+    ]
+
+  ext_int_wires = ["!" + pin_input(pin) if pin else "1'b0" for pin in ext_ints]
+  pin_wires += [PinWire("ext_int", "{" + ", ".join(reversed(ext_int_wires)) + "}")]
+
+  bus_wires = [
+      [
+        PinWire("mem_ahb_htrans",      "mem_ahb_htrans",      PinDir.INPUT,  2),
+        PinWire("mem_ahb_hready",      "mem_ahb_hready",      PinDir.INPUT),
+        PinWire("mem_ahb_hwrite",      "mem_ahb_hwrite",      PinDir.INPUT),
+        PinWire("mem_ahb_haddr",       "mem_ahb_haddr",       PinDir.INPUT,  32),
+        PinWire("mem_ahb_hsize",       "mem_ahb_hsize",       PinDir.INPUT,  3),
+        PinWire("mem_ahb_hburst",      "mem_ahb_hburst",      PinDir.INPUT,  3),
+        PinWire("mem_ahb_hwdata",      "mem_ahb_hwdata",      PinDir.INPUT,  32),
+        PinWire("mem_ahb_hreadyout",   "mem_ahb_hreadyout",   PinDir.OUTPUT, default=1),
+        PinWire("mem_ahb_hresp",       "mem_ahb_hresp",       PinDir.OUTPUT),
+        PinWire("mem_ahb_hrdata",      "mem_ahb_hrdata",      PinDir.OUTPUT, 32),
+      ], [
+        PinWire("slave_ahb_hsel",      "slave_ahb_hsel",      PinDir.OUTPUT),
+        PinWire("slave_ahb_hready",    "slave_ahb_hready",    PinDir.OUTPUT, default=1),
+        PinWire("slave_ahb_hreadyout", "slave_ahb_hreadyout", PinDir.INPUT),
+        PinWire("slave_ahb_htrans",    "slave_ahb_htrans",    PinDir.OUTPUT, 2),
+        PinWire("slave_ahb_hsize",     "slave_ahb_hsize",     PinDir.OUTPUT, 3),
+        PinWire("slave_ahb_hburst",    "slave_ahb_hburst",    PinDir.OUTPUT, 3),
+        PinWire("slave_ahb_hwrite",    "slave_ahb_hwrite",    PinDir.OUTPUT),
+        PinWire("slave_ahb_haddr",     "slave_ahb_haddr",     PinDir.OUTPUT, 32),
+        PinWire("slave_ahb_hwdata",    "slave_ahb_hwdata",    PinDir.OUTPUT, 32),
+        PinWire("slave_ahb_hresp",     "slave_ahb_hresp",     PinDir.INPUT),
+        PinWire("slave_ahb_hrdata",    "slave_ahb_hrdata",    PinDir.INPUT,  32),
+      ], [
+        PinWire("ext_dma_DMACBREQ",    "ext_dma_DMACBREQ",    PinDir.OUTPUT, 4),
+        PinWire("ext_dma_DMACLBREQ",   "ext_dma_DMACLBREQ",   PinDir.OUTPUT, 4),
+        PinWire("ext_dma_DMACSREQ",    "ext_dma_DMACSREQ",    PinDir.OUTPUT, 4),
+        PinWire("ext_dma_DMACLSREQ",   "ext_dma_DMACLSREQ",   PinDir.OUTPUT, 4),
+        PinWire("ext_dma_DMACCLR",     "ext_dma_DMACCLR",     PinDir.INPUT,  4),
+        PinWire("ext_dma_DMACTC",      "ext_dma_DMACTC",      PinDir.INPUT,  4),
+        PinWire("local_int",           "local_int",           PinDir.OUTPUT, 4),
+      ]]
+  for pw_group in bus_wires:
+    vlog_file.write("\n")
+    for pw in pw_group:
+      width = f"[{pw.width-1}:0]" if pw.width > 1 else ""
+      vlog_file.write(f"{wire} {width:6} {pw.wire};\n")
+  pin_wires += [pw for pw_group in bus_wires for pw in pw_group]
+
+  if macro_name:
+    ip_pin_wires = []
+    # For IP, pin directions are opposite from the MCU's point of view
+    for pin, dir in ip_wires:
+      if PinDir.isInput(dir):
+        ip_pin_wires += [PinWire(pin_input(pin), pin_input(pin, True), PinDir.OUTPUT)]
+      if PinDir.isOutput(dir):
+        ip_pin_wires += [PinWire(pin_output_data(pin), pin_output_data(pin, True), PinDir.INPUT)]
+        ip_pin_wires += [PinWire(pin_output_en(pin), pin_output_en(pin, True), PinDir.INPUT)]
+    ip_pin_wires = PinWire.consolidate(DesignInfo.IP_PINS) + PinWire.consolidate(ip_pin_wires) 
+    ip_pin_wires += [
+        PinWire("sys_clock", DesignInfo.SYS_GCK,  PinDir.INPUT),
+        PinWire("bus_clock", DesignInfo.BUS_CLK,  PinDir.INPUT),
+        PinWire("resetn",    DesignInfo.SYS_RSTN, PinDir.INPUT),
+        PinWire("stop",      DesignInfo.SYS_STOP, PinDir.INPUT),
+      ]
+    ip_pin_wires += [pw for pw_group in bus_wires for pw in pw_group]
+    macro_module = os.path.splitext(os.path.split(macro_name)[-1])[0]
+    write_inst(vlog_file, macro_module, "macro_inst", ip_pin_wires)
+    if for_synthesis and macro_file:
+      write_macro_tmpl(macro_file, macro_module, ip_pin_wires)
+  else:
+    for pw_group in bus_wires:
+      vlog_file.write("\n")
+      pw_out = list(filter(lambda pw: PinDir.isOutput(pw.dir), pw_group))
+      max_wire_len = max(len(pw.wire) for pw in pw_out)
+      for pw in pw_out:
+        vlog_file.write(f"assign {pw.wire:{max_wire_len}} = {pw.width}'b{pw.default:b};\n")
+
+  # GPIO and shared peripheral pins
+  for i in range(0, DeviceInfo.GPIO_COUNT):
+    vlog_file.write(f"\n{wire} [{DeviceInfo.GPIO_BITS-1}:0] {gpio_out_data(i)};\n")
+    vlog_file.write(f"{wire} [{DeviceInfo.GPIO_BITS-1}:0] {gpio_out_en(i)};\n")
+
+    pin_wires.append(PinWire(gpio_in(i),       gpio_in(i)))
+    pin_wires.append(PinWire(gpio_out_data(i), gpio_out_data(i)))
+    pin_wires.append(PinWire(gpio_out_en(i),   gpio_out_en(i)))
+
+    io_in = []
+    for j in range(0, DeviceInfo.GPIO_BITS):
+      gpio = DeviceInfo.gpioNameByIdx(i, j)
+      info_in = None
+      info_out = []
+      for info in DesignInfo.DESIGN_PINS:
+        if info.key() == gpio and PinDir.isInput(info.dir):
+          if info_in:
+            ErrorOut(f"{info_in.pin} and {info.pin} are both connected to {info.func}/{info.gpio}", 3); # Should not happen
+          info_in = info
+        if info.key() == gpio and PinDir.isOutput(info.dir):
+          info_out.append(info)
+
+      if info_in:
+        io_in.append(pin_input(info_in.pin, True))
+      else:
+        io_in.append("1'b0")
+
+      for info in info_out:
+        polarity = "!" if info.pin in DesignInfo.REV_OUT_EN else ""
+        vlog_file.write(f"assign {pin_output_data(info.pin, True)} = gpio{i}_io_out_data[{j}];\n")
+        vlog_file.write(f"assign {pin_output_en(info.pin, True)} = {info.en if info.en else f'{polarity}gpio{i}_io_out_en[{j}]'};\n")
+
+    # Aggregated inputs
+    io_in = '{' + ', '.join(reversed(io_in)) + '}'
+    vlog_file.write(f"{wire} [7:0] gpio{i}_io_in = {io_in};\n")
+
+  # MCU
+  write_inst(vlog_file, "alta_rv32", "rv32", pin_wires)
+
+  vlog_file.write("\nendmodule\n\n")
+
+  # if macro_file and not for_synthesis:
+  #  vlog_file.writelines(macro_file.readlines())
+
+  vlog_file.close()
+
+def write_header(header_name):
+  try:
+    header_file = open(header_name, 'w')
+  except:
+    ErrorOut(f"cannot create file {header_name}")
+
+  header_file.write(strip_heredoc(f"""#ifndef _AGM_BOARD_INFO
+    #define _AGM_BOARD_INFO
+
+    #ifndef BOARD_HSI_FREQUENCY
+    #define BOARD_HSI_FREQUENCY {10000000}
+    #endif
+
+    #ifndef BOARD_HSE_FREQUENCY
+    #define BOARD_HSE_FREQUENCY {int(DesignInfo.HSECLK_FREQ * 1e6)}
+    #endif
+
+    #ifndef BOARD_PLL_FREQUENCY
+    #define BOARD_PLL_FREQUENCY {int(DesignInfo.SYSCLK_FREQ * 1e6)}
+    #endif
+
+    #ifndef BOARD_BUS_FREQUENCY
+    #define BOARD_BUS_FREQUENCY {int((DesignInfo.BUSCLK_FREQ or DesignInfo.SYSCLK_FREQ) * 1e6)}
+    #endif
+    """))
+
+  if DesignInfo.USB0_MODE:
+    header_file.write(strip_heredoc(f"""
+    #define USB0_MODE {DesignInfo.USB0_MODE}
+    """))
+
+  header_file.write(strip_heredoc(f"""
+    #endif
+    """))
+
+  header_file.close()
+  return
+
+def write_ip_ve(ip_ve_name, for_synthesis, ve_name):
+  if not ip_ve_name:
+    return
+
+  # Gather IP pins
+  ip_pins = []
+  ip_wires = []
+  for pw in DesignInfo.IP_PINS:
+    ip_pins += [[pw.pin, pw.dir]]
+  for info in DesignInfo.DESIGN_PINS:
+    if info.pin in DesignInfo.IP_WIRES:
+      ip_wires += [[info.pin, info.dir]]
+
+  any_dev_pin = "PIN_XXX"
+  any_func_pin = "FUNC_XXX"
+  if for_synthesis:
+    # Dump IP pins to be used later as a checker
+    ip_ve = open(ip_ve_name, 'w', encoding='UTF-8')
+    for ip in ip_pins:
+      ip_ve.write(f"{ip[0]} {any_dev_pin}:{ip[1]}\n")
+    for ip in ip_wires:
+      ip_ve.write(f"{any_func_pin} {ip[0]}:{ip[1]}\n")
+    ip_ve.close()
+  else:
+    # Read the given ve as a checker
+    ip_ve = open(ip_ve_name, 'r', encoding='UTF-8')
+    check_pins = []
+    check_wires = []
+    for line in ip_ve.readlines():
+      words = re.sub(r'#.*', '', line.strip()).split()
+      if len(words) < 2:
+        continue
+      if words[0] == any_func_pin:
+        check_wires += [words[1].split(':')]
+      else:
+        pin_dir = words[1].split(':')
+        if pin_dir[0] == any_dev_pin:
+          check_pins += [[words[0], pin_dir[-1]]]
+    ip_ve.close()
+    if sorted(check_pins) != sorted(ip_pins) or sorted(check_wires) != sorted(ip_wires):
+      ErrorOut(f"IP pins in file {ve_name} do not match with {ip_ve_name}")
+
+
+
+def main(argv):
+  parser = argparse.ArgumentParser(description='Generate verilog for AGRV2K')
+  parser.add_argument('ve_name', metavar='design.ve', help='Input ve file', nargs='?')
+  parser.add_argument('vlog_name', metavar='design.v', help='Output Verilog file', nargs='?')
+  parser.add_argument('-d', '--device', dest='device', default='AGRV2KL100', help='Device Name')
+  parser.add_argument('-m', '--macro', dest='macro_name', metavar='macro.v', help='Macro Verilog file', required=False)
+  parser.add_argument('-l', '--list', help='List supported device', action='store_true')
+  parser.add_argument('-p', '--pins', help='List device pins', action='store_true')
+  parser.add_argument('-f', '--function', help='List function pins', action='store_true')
+  parser.add_argument('-s', '--synthesis', help='Generate verilog for synthesis', action='store_true')
+  parser.add_argument('-c', '--header', metavar='design.h', help='Output c-style header file', nargs='?', const='')
+  parser.add_argument('-i', '--ip', help='Write the IP file only without top level', type=str)
+  args = parser.parse_args(argv[1:])
+
+  check_device(args.device)
+
+  quit_if_no_ve = False
+  if args.list:
+    quit_if_no_ve = True
+    print(f"Supported devices:")
+    for device in CHIP_INFO.keys():
+      print(f"  {device}")
+  if args.pins:
+    quit_if_no_ve = True
+    print(f"{DeviceInfo.NAME} device pins:")
+    for pin in sorted(DeviceInfo.DEVICE_PINS, key=lambda name: int(name.split('_')[-1])):
+      print(f"{pin}")
+  if args.function:
+    quit_if_no_ve = True
+    print(f"{DeviceInfo.NAME} function pins:")
+    func_pins = {}
+    for group in range(DeviceInfo.GPIO_COUNT):
+      for bit in range(DeviceInfo.GPIO_BITS):
+        func_pins[DeviceInfo.gpioNameByIdx(group, bit)] = []
+    for pin, info in DeviceInfo.FUNC_PINS.items():
+      if info.gpio in func_pins:
+        if info.dir == PinDir.OUTPUT:
+          func_pins[info.gpio].append(f"{pin}({info.dir})")
+        else:
+          func_pins[info.gpio].insert(0, (f"{pin}({info.dir})"))
+      else:
+        func_pins[pin] = []
+    for pin, values in func_pins.items():
+      print(f"{', '.join([pin] + values)}")
+
+  if not args.ve_name:
+    if quit_if_no_ve:
+      return 0
+    else:
+      parser.print_help(sys.stderr)
+      return 1
+
+  TOP = os.path.splitext(os.path.split(args.ve_name)[-1])[0]
+  #TOP = "top"
+  vlog_name = args.vlog_name if args.vlog_name else f"{TOP}.v"
+  if args.ip and args.synthesis:
+    vlog_name = None # Do not write top level when generating IP
+  check_input(args.ve_name, args.macro_name)
+  write_vlog(TOP, vlog_name, args.macro_name, args.synthesis)
+  write_ip_ve(args.ip, args.synthesis, args.ve_name)
+  if args.header != None:
+    header_name = args.header if args.header else f"{TOP}.h"
+    write_header(header_name)
+
+if __name__ == "__main__":
+  sys.exit(main(sys.argv))
