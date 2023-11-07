@@ -279,10 +279,44 @@ void simple_shell(void)
 			printk("\n\n");
 		}
 
+		CMD(sdinit){
+			void sd_init(void);
+			sd_init();
+		}
+		CMD(sdt){
+			void sd_test(void);
+			sd_test();
+		}
+		CMD(sdr){
+			int sd_testr(int blkaddr, int blkcnt);
+			int baddr=0;
+			int bcnt=4;
+			if(argc>=2){
+				baddr = arg[0];
+				bcnt = arg[1];
+			}
+			sd_testr(baddr, bcnt);
+		}
+		CMD(sdw){
+			int sd_testw(int blkaddr, int blkcnt);
+			int baddr=0;
+			int bcnt=4;
+			if(argc>=2){
+				baddr = arg[0];
+				bcnt = arg[1];
+			}
+			sd_testw(baddr, bcnt);
+		}
+		CMD(sds){
+			int sd_status(void);
+			sd_status();
+		}
+
 		CMD(mt){
 			int cnt=0;
 			while(cnt<51){
 				printk("cnt: %d\n", cnt);
+				gpio_set(2, 0, cnt&1);
 				cnt += 1;
 				udelay(1000000);
 			}

@@ -210,6 +210,10 @@
   asm volatile ("csrrc %0, " #reg ", %1" : "=r"(__tmp) : "rK"(bit)); \
   __tmp; })
 
+
+#define WFI() ({ asm volatile ("wfi"); })
+
+
 #define rdtime() read_csr(time)
 #define rdcycle() read_csr(cycle)
 #define rdinstret() read_csr(instret)

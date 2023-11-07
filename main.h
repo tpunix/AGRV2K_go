@@ -34,6 +34,14 @@ u32 get_timer(void);
 void udelay(int us);
 void mdelay(int ms);
 
+
+int int_request(int id, void *func, void *arg);
+int int_priorit(int id, int priorit);
+int int_enable(int id);
+int int_disable(int id);
+
+
+
 int rtc_getcnt(void);
 
 
@@ -41,6 +49,12 @@ void uart0_init(int baudrate);
 int  getc(int tmout);
 void putc(int ch);
 void puts(char *str);
+
+
+void gpio_af(int group, int bit, int en);
+void gpio_dir(int group, int bit, int dir);
+void gpio_set(int group, int bit, int val);
+int  gpio_get(int group, int bit);
 
 /******************************************************************************/
 

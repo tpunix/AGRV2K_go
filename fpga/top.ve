@@ -1,42 +1,102 @@
+
+######## System Pins ########
+
 SYSCLK 200
 BUSCLK 100
 PLLCLK4 100
 PLLCLK4_PHASE 180
-HSECLK 8
+HSECLK 16
 USB0 host
 
 
-soc_led PIN_24:OUTPUT
-soc_s2  PIN_67:INPUT
+######## UserLogic Pins ########
+
+soc_led       PIN_91:OUTPUT
+
+PLL_CLKOUT4   PIN_2:OUTPUT
+
+# soc PSRAM
+soc_spi_csn   PIN_4:OUTPUT
+soc_spi_clk   PIN_88:OUTPUT
+soc_spi_io0   PIN_1
+soc_spi_io1   PIN_5
+soc_spi_io2   PIN_7
+soc_spi_io3   PIN_3
+
+# soc SDCARD
+soc_sd_clk    PIN_83:OUTPUT
+soc_sd_cmd    PIN_82
+soc_sd_d0     PIN_84
+soc_sd_d1     PIN_85
+soc_sd_d2     PIN_80
+soc_sd_d3     PIN_81
+soc_sd_cd     PIN_86:INPUT
+
+# Saturn ABUS
+ss_reset      PIN_15:INPUT
+ss_spclk      PIN_16:INPUT
+ss_ssel       PIN_18:OUTPUT
+ss_isd        PIN_23:OUTPUT
+ss_ibck       PIN_24:OUTPUT
+ss_ilrck      PIN_25:OUTPUT
+
+ss_dataoe     PIN_51:OUTPUT
+ss_datadir    PIN_48:OUTPUT
+ss_addroe     PIN_39:OUTPUT
+ss_outen      PIN_30:OUTPUT
+ss_await      PIN_26:OUTPUT
+ss_airq       PIN_29:OUTPUT
+
+ss_cs0        PIN_41:INPUT
+ss_cs1        PIN_42:INPUT
+ss_cs2        PIN_43:INPUT
+ss_rd         PIN_40:INPUT
+ss_wr0        PIN_45:INPUT
+ss_wr1        PIN_44:INPUT
+ss_fc0        PIN_47:INPUT
+ss_fc1        PIN_46:INPUT
+
+ss_ad[0]      PIN_53
+ss_ad[1]      PIN_55
+ss_ad[2]      PIN_57
+ss_ad[3]      PIN_59
+ss_ad[4]      PIN_58
+ss_ad[5]      PIN_56
+ss_ad[6]      PIN_54
+ss_ad[7]      PIN_52
+ss_ad[8]      PIN_61
+ss_ad[9]      PIN_63
+ss_ad[10]     PIN_65
+ss_ad[11]     PIN_67
+ss_ad[12]     PIN_66
+ss_ad[13]     PIN_64
+ss_ad[14]     PIN_62
+ss_ad[15]     PIN_60
+ss_ah[0]      PIN_38:INPUT
+ss_ah[1]      PIN_37:INPUT
+ss_ah[2]      PIN_36:INPUT
+ss_ah[3]      PIN_35:INPUT
+ss_ah[4]      PIN_34:INPUT
+ss_ah[5]      PIN_33:INPUT
+ss_ah[6]      PIN_32:INPUT
+ss_ah[7]      PIN_31:INPUT
 
 
-# PLL_CLK4直接输出到spi_clk(PIN_30)
-# 下面的PIN_51是不存在的
-PLL_CLKOUT4   PIN_30
+######## MCU Pins ########
 
-soc_spi_csn   PIN_7:OUTPUT
-soc_spi_clk   PIN_51:OUTPUT
-soc_spi_io0   PIN_32
-soc_spi_io1   PIN_31
-soc_spi_io2   PIN_46
-soc_spi_io3   PIN_48
+# LED1
+GPIO2_0        PIN_68
 
+# debuf UART
+UART0_UARTRXD  PIN_78
+UART0_UARTTXD  PIN_79
 
-GPIO2_0 ip_pti:INPUT
-GPIO2_1 ip_pto:OUTPUT
+# mcu PSRAM
+SPI0_CSN       PIN_96
+SPI0_SCK       PIN_93
+SPI0_SI_IO0    PIN_92
+SPI0_SO_IO1    PIN_97
+SPI0_WPN_IO2   PIN_98
+SPI0_HOLDN_IO3 PIN_95
 
-
-UART0_UARTRXD PIN_69
-UART0_UARTTXD PIN_68
-
-
-#SPI0_SI_IO0   PIN_32
-#SPI0_SO_IO1   PIN_31
-#SPI0_SCK      PIN_30
-#SPI0_CSN      PIN_7
-
-SPI1_SI_IO0   PIN_83
-SPI1_SO_IO1   PIN_65
-SPI1_SCK      PIN_80
-SPI1_CSN      PIN_79
 

@@ -4,67 +4,84 @@
 ///////////////////////////////////////////////////////
 
 module ulogic (
-  // direct pins
-  output        soc_led,
-  input         soc_s2,
-  output        soc_spi_clk,
-  output        soc_spi_csn,
-  inout			soc_spi_io0,
-  inout			soc_spi_io1,
-  inout			soc_spi_io2,
-  inout			soc_spi_io3,
-  // from mcu func
-  output        ip_pti_in,
-  input         ip_pto_out_data,
-  input         ip_pto_out_en,
-  // from mcu system
-  input         sys_clock,
-  input         bus_clock,
-  input         resetn,
-  input         stop,
-  // AHB slave
-  input  [1:0]  mem_ahb_htrans,
-  input         mem_ahb_hready,
-  input         mem_ahb_hwrite,
-  input  [31:0] mem_ahb_haddr,
-  input  [2:0]  mem_ahb_hsize,
-  input  [2:0]  mem_ahb_hburst,
-  input  [31:0] mem_ahb_hwdata,
-  output reg    mem_ahb_hreadyout,
-  output        mem_ahb_hresp,
-  output [31:0] mem_ahb_hrdata,
-  // AHB master
-  output        slave_ahb_hsel,
-  output tri1   slave_ahb_hready,
-  input         slave_ahb_hreadyout,
-  output [1:0]  slave_ahb_htrans,
-  output [2:0]  slave_ahb_hsize,
-  output [2:0]  slave_ahb_hburst,
-  output        slave_ahb_hwrite,
-  output [31:0] slave_ahb_haddr,
-  output [31:0] slave_ahb_hwdata,
-  input         slave_ahb_hresp,
-  input  [31:0] slave_ahb_hrdata,
-  // DMA
-  output [3:0]  ext_dma_DMACBREQ,
-  output [3:0]  ext_dma_DMACLBREQ,
-  output [3:0]  ext_dma_DMACSREQ,
-  output [3:0]  ext_dma_DMACLSREQ,
-  input  [3:0]  ext_dma_DMACCLR,
-  input  [3:0]  ext_dma_DMACTC,
-  output [3:0]  local_int
+	// Debug LED
+	output        soc_led,
+	// SDCard
+	input         soc_sd_cd,
+	output        soc_sd_clk,
+	inout         soc_sd_cmd,
+	inout         soc_sd_d0,
+	inout         soc_sd_d1,
+	inout         soc_sd_d2,
+	inout         soc_sd_d3,
+	// SPI PSRAM
+	output        soc_spi_clk,
+	output        soc_spi_csn,
+	inout         soc_spi_io0,
+	inout         soc_spi_io1,
+	inout         soc_spi_io2,
+	inout         soc_spi_io3,
+	// Saturn ABUS
+	inout  [15:0] ss_ad,
+	output        ss_addroe,
+	input  [7:0]  ss_ah,
+	output        ss_airq,
+	output        ss_await,
+	input         ss_cs0,
+	input         ss_cs1,
+	input         ss_cs2,
+	output        ss_datadir,
+	output        ss_dataoe,
+	input         ss_fc0,
+	input         ss_fc1,
+	output        ss_ibck,
+	output        ss_ilrck,
+	output        ss_isd,
+	output        ss_outen,
+	input         ss_rd,
+	input         ss_reset,
+	input         ss_spclk,
+	output        ss_ssel,
+	input         ss_wr0,
+	input         ss_wr1,
+	// from mcu system
+	input         sys_clock,
+	input         bus_clock,
+	input         resetn,
+	input         stop,
+	// AHB slave
+	input  [1:0]  mem_ahb_htrans,
+	input         mem_ahb_hready,
+	input         mem_ahb_hwrite,
+	input  [31:0] mem_ahb_haddr,
+	input  [2:0]  mem_ahb_hsize,
+	input  [2:0]  mem_ahb_hburst,
+	input  [31:0] mem_ahb_hwdata,
+	output        mem_ahb_hreadyout,
+	output        mem_ahb_hresp,
+	output [31:0] mem_ahb_hrdata,
+	// AHB master
+	output        slave_ahb_hsel,
+	output  tri1  slave_ahb_hready,
+	input         slave_ahb_hreadyout,
+	output [1:0]  slave_ahb_htrans,
+	output [2:0]  slave_ahb_hsize,
+	output [2:0]  slave_ahb_hburst,
+	output        slave_ahb_hwrite,
+	output [31:0] slave_ahb_haddr,
+	output [31:0] slave_ahb_hwdata,
+	input         slave_ahb_hresp,
+	input  [31:0] slave_ahb_hrdata,
+	// DMA
+	output [3:0]  ext_dma_DMACBREQ,
+	output [3:0]  ext_dma_DMACLBREQ,
+	output [3:0]  ext_dma_DMACSREQ,
+	output [3:0]  ext_dma_DMACLSREQ,
+	input  [3:0]  ext_dma_DMACCLR,
+	input  [3:0]  ext_dma_DMACTC,
+	// Interrupt
+	output [3:0]  local_int
 );
-
-///////////////////////////////////////////////////////
-// Logics                                            //
-///////////////////////////////////////////////////////
-
-
-assign ip_pti_in = soc_s2;
-
-assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
-
-
 
 ///////////////////////////////////////////////////////
 // AHB Master                                        //
@@ -77,21 +94,14 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	// 高速AHB到低速BUSCLK的握手信号
 	reg ahb_start;
 	reg ahb_ack;
-	reg ahb_trans_d;
+	reg ahb_ack_d;
 
-	always @(posedge aclk)
+	always @(posedge ahb_ack or posedge mem_ahb_htrans[1])
 	begin
-		ahb_trans_d <= mem_ahb_htrans[1];
-	end
-
-	always @(negedge resetn or posedge aclk)
-	begin
-		if(resetn==0) begin
+		if(ahb_ack) begin
 			ahb_start <= 1'b0;
 		end else begin
-			if(ahb_ack)
-				ahb_start <= 1'b0;
-			else if(ahb_trans_d==0 && mem_ahb_htrans[1]==1)
+			if(hreadyout)
 				ahb_start <= 1'b1;
 		end
 	end
@@ -99,10 +109,11 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	always @(posedge bclk)
 	begin
 		ahb_ack <= ahb_start;
+		ahb_ack_d <= ahb_ack;
 	end
 
 
-	//reg mem_ahb_hreadyout;
+	reg hreadyout;
 	reg ahb_rd;
 	reg ahb_wr;
 	reg[31:0] haddr;
@@ -113,19 +124,21 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	always @(negedge resetn or posedge aclk)
 	begin
 		if(resetn==0) begin
-			mem_ahb_hreadyout <= 1'b1;
+			hreadyout <= 1'b1;
 		end else begin
-			if(mem_ahb_hreadyout && mem_ahb_htrans[1]) begin
-				mem_ahb_hreadyout <= 1'b0;
+			if(hreadyout && mem_ahb_htrans[1]) begin
+				hreadyout <= 1'b0;
 				ahb_rd <= !mem_ahb_hwrite;
 				ahb_wr <=  mem_ahb_hwrite;
 				haddr <= mem_ahb_haddr;
 				hsize <= mem_ahb_hsize[1:0];
 			end else if(ahb_ready) begin
-				mem_ahb_hreadyout <= 1'b1;
+				hreadyout <= 1'b1;
 			end
 		end
 	end
+	
+	assign mem_ahb_hreadyout = hreadyout;
 
 	assign ahb_wb[0] = ( (hsize==2) || (hsize==1 && haddr[1]==0) || (hsize==0 && haddr[1:0]==2'b00) );
 	assign ahb_wb[1] = ( (hsize==2) || (hsize==1 && haddr[1]==0) || (hsize==0 && haddr[1:0]==2'b01) );
@@ -137,16 +150,49 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	// 0x68000000
 	wire pram_cs = (haddr[28:27]==2'b01);
 	// 0x70000000
-	wire sys_cs  = (haddr[28]==1); 
+	wire sys_cs  = (haddr[28]==1 && haddr[11:8]==4'b0000);
+	// 0x70000100
+	wire sd_cs   = (haddr[28]==1 && haddr[11:8]==4'b0001);
 
 	assign mem_ahb_hrdata =
 		(sram_cs)? sram_rdata :
 		(pram_cs)? pram_rdata :
 		(sys_cs )? sys_rdata :
+		(sd_cs  )? sd_rdata :
 		32'hffffffff;
 
-	assign ahb_ready = sram_ready | sys_ready | pram_ready;
+	assign ahb_ready = sram_ready | sys_ready | pram_ready | sd_ready;
 	assign mem_ahb_hresp = 1'b0;
+
+///////////////////////////////////////////////////////
+// SD Ctrl                                           //
+///////////////////////////////////////////////////////
+
+	wire sd_wr = (ahb_ack && sd_cs && ahb_wr);
+	wire sd_rd = (ahb_ack && sd_cs && ahb_rd);
+	wire[31:0] sd_rdata;
+	wire sd_ready = sd_cs && ahb_ack_d;
+
+	wire[3:0] sd_din = {soc_sd_d3, soc_sd_d2, soc_sd_d1, soc_sd_d0};
+	wire[3:0] sd_dout;
+	wire[3:0] sd_doe;
+	wire sd_coe;
+	wire sd_cmdin = soc_sd_cmd;
+	wire sd_irq;
+
+	sdctrl sd0(resetn, bclk,
+		sd_rd, sd_wr, haddr[7:0], mem_ahb_hwdata, sd_rdata, sd_irq, ext_dma_DMACBREQ[0], ext_dma_DMACCLR[0],
+		soc_sd_cd, soc_sd_clk, sd_cmdin, sd_cmdout, sd_din, sd_dout, sd_coe, sd_doe
+	);
+
+	assign soc_sd_cmd = (sd_coe   )? sd_cmdout  : 1'bz;
+	assign soc_sd_d0  = (sd_doe[0])? sd_dout[0] : 1'bz;
+	assign soc_sd_d1  = (sd_doe[1])? sd_dout[1] : 1'bz;
+	assign soc_sd_d2  = (sd_doe[2])? sd_dout[2] : 1'bz;
+	assign soc_sd_d3  = (sd_doe[3])? sd_dout[3] : 1'bz;
+
+	assign local_int[0] = sd_irq;
+
 
 ///////////////////////////////////////////////////////
 // System Ctrl                                       //
@@ -167,24 +213,21 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	end
 
 	wire sys_wr = (ahb_ack && sys_cs && ahb_wr);
-	wire sys_rd = (ahb_start && sys_cs && ahb_rd);
 	reg[31:0] sys_rdata;
-	wire sys_ready = sys_cs && ahb_ack;
+	wire sys_ready = sys_cs && ahb_ack_d;
 
 	always @(posedge bclk)
 	begin
-		if(sys_rd) begin
-			case(haddr[4:2])
-				3'd0:    sys_rdata <= treg0;
-				3'd1:    sys_rdata <= treg1;
-				3'd2:    sys_rdata <= treg2;
-				3'd3:    sys_rdata <= treg3;
-				3'd4:    sys_rdata <= taddr1;
-				3'd6:    sys_rdata <= sys_reg3;
-				3'd7:    sys_rdata <= sys_reg4;
-				default: sys_rdata <= 32'hffffffff;
-			endcase
-		end
+		case(haddr[4:2])
+			3'd0:    sys_rdata <= treg0;
+			3'd1:    sys_rdata <= treg1;
+			3'd2:    sys_rdata <= treg2;
+			3'd3:    sys_rdata <= treg3;
+			3'd4:    sys_rdata <= taddr1;
+			3'd6:    sys_rdata <= sys_reg3;
+			3'd7:    sys_rdata <= sys_reg4;
+			default: sys_rdata <= 32'hffffffff;
+		endcase
 	end
 
 	reg[31:0] sys_reg3;
@@ -309,5 +352,12 @@ assign soc_led = soc_s2 | (ip_pto_out_en & ip_pto_out_data);
 	assign soc_spi_io3 = (ps_oe[3])? ps_dout[3] : 1'bz;
 
 
-endmodule
+///////////////////////////////////////////////////////
+// Saturn ABUS                                       //
+///////////////////////////////////////////////////////
 
+	assign ss_outen = 1'b1;
+	assign ss_dataoe = 1'b1;
+	assign ss_addroe = 1'b1;
+
+endmodule

@@ -67,7 +67,7 @@ typedef struct
 	uint32_t DstAddr;       // 0x04, Channel Destination Address Register
 	uint32_t LLI;           // 0x08, Channel Linked List Item Register
 	uint32_t Control;       // 0x0C, Channel Control Register
-	uint32_t Configuration; // 0x10, Channel Configuration Register
+	uint32_t Config;        // 0x10, Channel Configuration Register
 	uint32_t Reserved[3];   // 0x14-0x1C
 } DMAC_ChannelTypeDef;
 
@@ -85,10 +85,10 @@ typedef volatile struct
 	uint32_t SoftSReq;          // 0x024, Software Single Request Register
 	uint32_t SoftLBReq;         // 0x028, Software Last Burst Request Register
 	uint32_t SoftSBReq;         // 0x02C, Software Last Single Request Register
-	uint32_t Configuration;     // 0x030, Configuration Register
+	uint32_t Config;            // 0x030, Configuration Register
 	uint32_t Sync;              // 0x034, Synchronization Register
 	uint32_t Reserved[(0x100 - 0x038) >> 2];
-	DMAC_ChannelTypeDef Channels[DMAC_CHANNELS]; // 0x100, Channel Registers
+	DMAC_ChannelTypeDef CH[DMAC_CHANNELS]; // 0x100, Channel Registers
 } DMAC_TypeDef;
 
 
@@ -335,7 +335,7 @@ typedef struct
 	uint32_t PENDING[0x400];  // 0x1000-
 	uint32_t ENABLE[0x7f800]; // 0x2000-
 	uint32_t THRESHOLD;       // 0x200000
-	uint32_t CLAIM_COMPLETE;  // 0x200004
+	uint32_t CLAIM;           // 0x200004
 } PLIC_TypeDef;
 
 #define PLIC_BASE (0xc000000)
@@ -354,6 +354,13 @@ typedef struct
 
 #define CLINT ((volatile CLINT_TypeDef *) 0x2000000)
 
+
+#define   SOFT_IRQn 48
+#define MTIMER_IRQn 49
+#define CLINT0_IRQn 50
+#define CLINT1_IRQn 51
+#define CLINT2_IRQn 52
+#define CLINT3_IRQn 53
 
 /******************************************************************************/
 

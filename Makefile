@@ -1,6 +1,7 @@
 
 OO_DIR = /e/AGRV/AgRV_pio/packages/tool-agrv_logic/openocd/
 OPENOCD = $(OO_DIR)/bin/openocd.exe -c "set CONNECT_UNDER_RESET 1" -f $(OO_DIR)/agrv2k.cfg 
+#OPENOCD = $(OO_DIR)/bin/openocd.exe -c "set ADAPTER cmsis-dap; set CONNECT_UNDER_RESET 1" -f $(OO_DIR)/agrv2k.cfg 
 CROSS = riscv64-unknown-elf-
 
 CC = $(CROSS)gcc
@@ -11,7 +12,7 @@ OBJCOPY = $(CROSS)objcopy
 OBJDUMP = $(CROSS)objdump
 
 
-CFLAGS = -Wall -g -O2 -I. -Iinc -march=rv32imafc -mabi=ilp32f -fno-builtin
+CFLAGS = -Wall -g -O3 -I. -Iinc -march=rv32imafc -mabi=ilp32f -fno-builtin
 LDFLAGS  = -fno-builtin -nostartfiles -nodefaultlibs -march=rv32imafc -mabi=ilp32f
 LIBS = -lgcc
 
@@ -25,7 +26,7 @@ ASFLAG  += -DRUN_FLASH
 
 TARGET = agrv32.elf
 
-OBJS = start.o main.o shell.o printk.o string.o
+OBJS = start.o main.o shell.o printk.o string.o spi_sd.o
 
 #coremark
 ifeq (1,0)
@@ -59,6 +60,7 @@ dl: $(TARGET)
 	$(OPENOCD) -c "flash write_image erase agrv32.elf.bin 0x80000000" -c "reset" -c "exit"
 
 gdb:
+	start $(OPENOCD)
 	$(GDB) --tui -ex "target remote 127.0.0.1:3333" agrv32.elf
 
 oohlp:
