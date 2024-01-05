@@ -1,7 +1,8 @@
 
 
 #include "main.h"
-
+#include "xos.h"
+#include "tntfs.h"
 
 /******************************************************************************/
 
@@ -92,14 +93,16 @@ static int bsize;
 static int csize;
 static int cblock;
 
+BLKDEV sd_dev;
 
 /******************************************************************************/
 
-static volatile int c_inten;
+static SEM sd_sem;
 
 static int sd_irq(u32 *regs, void *arg)
 {
 	int flags;
+	int c_inten = SDCTRL->inten;
 
 	//printk("\nsd_irq! c_inten=%02x flags=%04x\n", c_inten, SDCTRL->flags);
 	while(1){
@@ -115,7 +118,7 @@ static int sd_irq(u32 *regs, void *arg)
 
 		if(flags & (CF_CMDONE | CF_DTDONE | CF_TIMEOUT)){
 			SDCTRL->inten = 0;
-			c_inten = 0;
+			xos_sem_give(&sd_sem);
 			break;
 		}
 	}
@@ -125,19 +128,10 @@ static int sd_irq(u32 *regs, void *arg)
 }
 
 
-void sd_init(void)
+// 注意: DMA一次传输的长度最大是4095次.
+static int sd_cmd(int cmd, int arg, void *dbuf, int bsize)
 {
-	SDCTRL->config = (DIV_LOW<<4) | 0x01;
-	SDCTRL->inten = 0;
-	SDCTRL->flags = 0xffff;
-
-	int_request(CLINT0_IRQn, sd_irq, NULL);
-	int_enable(CLINT0_IRQn);
-}
-
-int sd_cmd(int cmd, int arg, void *dbuf, int bsize)
-{
-	int flags;
+	int flags, c_inten;
 
 	respp = 0;
 	cmd_resp[0] = 0;
@@ -175,46 +169,35 @@ int sd_cmd(int cmd, int arg, void *dbuf, int bsize)
 	SDCTRL->arg = arg;
 	SDCTRL->cmd = cmd;
 
-	int timeout = 0;
-	if(cmd&CMD_TRANS_WR){
-		reset_timer();
-		int et = get_timer() + 1000000;
-		while(c_inten){
-			if(get_timer()>=et){
-				timeout = 1;
-				break;
-			}
-		}
-	}else{
-		while(c_inten){
-			WFI();
-		}
-	}
+	int retv = xos_sem_take(&sd_sem, 100);
 	flags = SDCTRL->flags;
-	if(timeout){
-		printk("\nCMD timeout!\n");
-	}else{
-		SDCTRL->flags = 0xffff;
-		SDCTRL->cmd = 0;
+	SDCTRL->flags = 0xffff;
+	SDCTRL->cmd = 0;
+
+	if(retv || (flags & ERROR_MASK)){
+		printk("\nCMD(%02d) timeout! R=%d F=%02x\n", cmd&0x3f, retv, flags);
+		if(retv)
+			return retv;
+		return (flags & ERROR_MASK);
 	}
 	if(HAS_DATA(cmd)){
 		// TODO: STOP DMA
 	}
-	printk("SDCMD(%02x): F=%02x", cmd&0x3f, flags);
+	//printk("SDCMD(%02d): F=%02x", cmd&0x3f, flags);
 
 
 	if(RESP_LONG(cmd)){
-		printk(" C=%08x RESP=%08x %08x %08x %08x\n",
-				cmd_resp[4], cmd_resp[3], cmd_resp[2], cmd_resp[1], cmd_resp[0]);
+		//printk(" C=%08x RESP=%08x %08x %08x %08x\n",
+		//		cmd_resp[4], cmd_resp[3], cmd_resp[2], cmd_resp[1], cmd_resp[0]);
 	}else if(RESP_SHORT(cmd)){
 		cmd_resp[0] = SDCTRL->arg;
 		cmd_resp[4] = SDCTRL->resp1;
-		printk(" C=%08x RESP=%08x\n", cmd_resp[4], cmd_resp[0]);
+		//printk(" C=%08x RESP=%08x\n", cmd_resp[4], cmd_resp[0]);
 	}else{
-		printk("\n");
+		//printk("\n");
 	}
 
-	return (flags & ERROR_MASK);
+	return 0;
 }
 
 
@@ -226,11 +209,13 @@ static int sd_acmd(u32 cmd, u32 arg)
 	if(retv)
 		return retv;
 
+	udelay(10);
 	retv = sd_cmd(cmd, arg, NULL, 0);
 	return retv;
 }
 
-int sd_test(void)
+
+int sd_identify(void)
 {
 	int retv, hcs;
 	char tmp[8];
@@ -238,27 +223,27 @@ int sd_test(void)
 	is_sdhc = 0;
 	sd_rca = 0;
 
-	sd_init();
-	mdelay(1);
 
 	sd_cmd(CMD_00, 0x00000000, NULL, 0);
-	mdelay(10);
+	xos_task_delay(1);
 	sd_cmd(CMD_00, 0x00000000, NULL, 0);
-	mdelay(10);
+	xos_task_delay(1);
 
 	retv = sd_cmd(CMD_08, 0x000001aa, NULL, 0);
+	//printk("CMD_08: retv=%d resp=%08x\n", retv, cmd_resp[0]);
 	if(retv)
 		hcs = 0;
 	else
 		hcs = 1<<30;
 
+	mdelay(1);
 	while(1){
 		retv = sd_acmd(CMD_41, 0x00f00000|hcs);
 		if(retv)
 			break;
 		if(cmd_resp[0]&0x80000000)
 			break;
-		mdelay(10);
+		xos_task_delay(1);
 	}
 	if(retv){
 		printk("ACMD41 error! %08x\n", retv);
@@ -289,6 +274,7 @@ int sd_test(void)
 	if(retv)
 		return retv;
 	sd_rca = cmd_resp[0]>>16;
+	mdelay(1);
 
 	// Send CSD
 	retv = sd_cmd(CMD_09, (sd_rca<<16), NULL, 0);
@@ -328,33 +314,32 @@ int sd_test(void)
 	}
 	printk("    Blks: %d\n", cblock);
 	printk("    Size: %d K\n", csize);
+	sd_dev.sectors = cblock;
 
-
-#if 1
 	// Select CARD
 	retv = sd_cmd(CMD_07, sd_rca<<16, NULL, 0);
 	if(retv){
 		sd_rca = 0;
 		return retv;
 	}
-	//sd_clk_set(SDCLK_HIGH);
 	SDCTRL->config = (DIV_HIGH<<4) | 0x01;
 
+	mdelay(1);
 	// Set Block Len
 	sd_cmd(CMD_16, 512, NULL, 0);
 
+	mdelay(1);
 	// Switch to 4bit
 	retv = sd_acmd(CMD_06, 2);
-	if(retv)
+	if(retv){
+		printk("ACMD_06 error!\n");
 		return retv;
-	//sd_bus_width(4);
+	}
 
 	// Card send its status
 	retv = sd_cmd(CMD_13, sd_rca<<16, NULL, 0);
 	if(retv)
 		return retv;
-#endif
-
 
 	return 0;
 }
@@ -367,7 +352,7 @@ int sd_read_blocks(u32 block, int count, u8 *buf)
 {
 	int retv;
 
-	printk("sd_read_blocks:  blk=%08x cnt=%d\n", block, count);
+	//printk("sd_read_blocks:  blk=%08x cnt=%d\n", block, count);
 
 	if(!is_sdhc)
 		block *= 512;
@@ -412,39 +397,129 @@ int sd_write_blocks(u32 block, int count, u8 *buf)
 /******************************************************************************/
 
 
-u8 *dbuf = (u8*)0x20010000;
-
-int sd_testr(int blkaddr, int blkcnt)
+static int sd_read_sector(void *itf, u8 *buf, u32 start, int size)
 {
-	int retv;
+	int retv = 0;
 
-	retv = sd_read_blocks(blkaddr, blkcnt, dbuf);
-
-	return retv;
-}
-
-
-int sd_testw(int blkaddr, int blkcnt)
-{
-	int retv;
-
-	if(blkaddr==0){
-		blkaddr = 1;
+	// 拆分传输以适应DMA的限制。
+	while(size>16){
+		retv = sd_read_blocks(start, 16, buf);
+		if(retv<0)
+			return retv;
+		start += 16;
+		size -= 16;
+		buf += 512*16;
 	}
-	retv = sd_write_blocks(blkaddr, blkcnt, (u8*)0x80000000);
+
+	if(size){
+		retv = sd_read_blocks(start, size, buf);
+	}
 
 	return retv;
 }
 
 
-int sd_status(void)
+static int sd_write_sector(void *itf, u8 *buf, u32 start, int size)
+{
+	int retv = 0;
+
+	// 拆分传输以适应DMA的限制。
+	while(size>16){
+		retv = sd_write_blocks(start, size, buf);
+		if(retv<0)
+			return retv;
+		start += 16;
+		size -= 16;
+		buf += 512*16;
+	}
+
+	if(size){
+		retv = sd_write_blocks(start, size, buf);
+	}
+
+	return retv;
+}
+
+
+void sd_init(void)
 {
 	int retv;
 
-	retv = sd_cmd(CMD_13, sd_rca<<16, NULL, 0);
+	SDCTRL->config = (DIV_LOW<<4) | 0x01;
+	SDCTRL->inten = 0;
+	SDCTRL->flags = 0xffff;
 
-	return retv;
+	xos_sem_init(&sd_sem, 0);
+
+	int_request(CLINT0_IRQn, sd_irq, NULL);
+	int_enable(CLINT0_IRQn);
+
+	memset(&sd_dev, 0, sizeof(BLKDEV));
+	sd_dev.read_sector = sd_read_sector;
+	sd_dev.write_sector = sd_write_sector;
+
+	xos_task_delay(1);
+
+	if(SDCTRL->flags&1){
+		printk("No SDCard insert!\n");
+	}else{
+		printk("SDCard identify ...\n");
+		retv = sd_identify();
+		printk("  retv=%d\n", retv);
+		if(retv)
+			return;
+
+		retv = f_initdev(&sd_dev, "sd", 0);
+		printk("f_initdev: retv=%d\n", retv);
+		if(retv)
+			return;
+		retv = f_mount(&sd_dev, 0);
+		printk("f_mount: retv=%d\n", retv);
+		if(retv==0){
+			f_list("sd0:/");
+			printk("\n");
+		}
+	}
 }
+
+
+/******************************************************************************/
+
+static int sd_inited = 0;
+
+void sd_test(void)
+{
+	int retv;
+
+	if(sd_inited==0){
+		SDCTRL->config = (DIV_LOW<<4) | 0x01;
+		SDCTRL->inten = 0;
+		SDCTRL->flags = 0xffff;
+
+		xos_sem_init(&sd_sem, 0);
+
+		int_request(CLINT0_IRQn, sd_irq, NULL);
+		int_enable(CLINT0_IRQn);
+
+		memset(&sd_dev, 0, sizeof(BLKDEV));
+		sd_dev.read_sector = sd_read_sector;
+		sd_dev.write_sector = sd_write_sector;
+
+		xos_task_delay(1);
+		sd_inited = 1;
+	}
+
+	if(SDCTRL->flags&1){
+		printk("No SDCard insert!\n");
+	}else{
+		printk("SDCard identify ...\n");
+		retv = sd_identify();
+		printk("  retv=%d\n", retv);
+		if(retv)
+			return;
+	}
+}
+
 
 /******************************************************************************/
 

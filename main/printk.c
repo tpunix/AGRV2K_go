@@ -17,19 +17,19 @@
 
 #include "main.h"
 
-static int itostr(char *buf, unsigned long long data, int base, int upper, int frac_width)
+static int itostr(char *buf, int in_data, int base, int upper, int sign)
 {
 	int res, len, i;
+	unsigned int data;
 	char *str;
 
-	if(base!=15){
-		frac_width = 0;
+	if(base==10 && sign && in_data<0){
+		data = -in_data;
 	}else{
-		base = 10;
+		data = in_data;
 	}
 
 	str = buf;
-	i = 0;
 	do{
 		res = data%base;
 		data = data/base;
@@ -43,12 +43,7 @@ static int itostr(char *buf, unsigned long long data, int base, int upper, int f
 			}
 		}
 		*str++ = res;
-		i += 1;
-		if(i==frac_width)
-			*str++ = '.';
 	}while(data);
-	if(*(str-1)=='.')
-		*str++ = '0';
 	len = str-buf;
 
 	/* reverse digital order */
@@ -78,7 +73,7 @@ int vsnprintk(char *buf, int size, char *fmt, va_list args)
 {
 	char ch, *s, *str, *end, *sstr;
 	char digital_buf[32];
-	int zero_pad, left_adj, add_sign, field_width, frac_width, sign;
+	int zero_pad, left_adj, add_sign, field_width, sign;
 	int i, base, upper, len;
 
 
@@ -132,16 +127,14 @@ int vsnprintk(char *buf, int size, char *fmt, va_list args)
 		/* get field width: m.n */
 		field_width = 0;
 		/* get m */
-		while(*fmt>'0' && *fmt<='9'){
+		while(*fmt && *fmt>'0' && *fmt<='9'){
 			field_width = field_width*10+(*fmt-'0');
 			fmt++;
 		}
-		frac_width = 6;
-		if(*fmt=='.'){
+		if(*fmt && *fmt=='.'){
 			fmt++;
-			/* get n */
-			while(*fmt>'0' && *fmt<='9'){
-				frac_width = (*fmt-'0'); // only support one digital
+			/* skip n */
+			while(*fmt && *fmt>'0' && *fmt<='9'){
 				fmt++;
 			}
 		}
@@ -190,10 +183,9 @@ int vsnprintk(char *buf, int size, char *fmt, va_list args)
 				break;
 
 			/* float format, skip it */
-			case 'E': case 'F': case 'G': case 'A':
-				upper = 1;
-			case 'e': case 'f': case 'g': case 'a':
-				base = 15;
+			case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'a': case 'A':
+				(void)(va_arg(args, double));
+				s = NULL;
 				break;
 
 			/* length modifier */
@@ -211,28 +203,16 @@ int vsnprintk(char *buf, int size, char *fmt, va_list args)
 		}
 
 		if(base){
-			unsigned long long d64;
-			if(base==15){
-				typedef union { double d; int i[2]; }DFP;
-				DFP df;
-				df.d = va_arg(args, double);
-				if(df.i[1]<0){
+			i = va_arg(args, int);
+			if(base==10 && sign){
+				if(i<0){
 					add_sign = '-';
-					df.d = -df.d;
 				}
-				for(i=0; i<frac_width; i++){
-					df.d *= 10;
-				}
-				d64 = df.d+0.5;
 			}else{
-				i = va_arg(args, int);
-				if(base==10 && sign && i<0){
-					add_sign = '-';
-					i = -i;
-				}
-				d64 = (unsigned int)i;
+				add_sign = 0;
 			}
-			len = itostr(digital_buf, d64, base, upper, frac_width);
+
+			len = itostr(digital_buf, i, base, upper, sign);
 		}else{
 			zero_pad = ' ';
 			add_sign = 0;
@@ -271,12 +251,12 @@ int vsnprintk(char *buf, int size, char *fmt, va_list args)
 	return str-buf;
 }
 
+static char printk_buf[256];
 
 int printk(char *fmt, ...)
 {
 	va_list args;
 	int printed_len;
-	char printk_buf[256];
 
 	/* Emit the output into the temporary buffer */
 	va_start(args, fmt);
@@ -297,6 +277,19 @@ int sprintk(char *sbuf, const char *fmt, ...)
 	/* Emit the output into the temporary buffer */
 	va_start(args, fmt);
 	printed_len = vsnprintk(sbuf, 256, (char*)fmt, args);
+	va_end(args);
+
+	return printed_len;
+}
+
+int snprintf(char *sbuf, int len, const char *fmt, ...)
+{
+	va_list args;
+	int printed_len;
+
+	/* Emit the output into the temporary buffer */
+	va_start(args, fmt);
+	printed_len = vsnprintk(sbuf, len, (char*)fmt, args);
 	va_end(args);
 
 	return printed_len;

@@ -33,9 +33,13 @@ SECTIONS
 		*(.sdata2.*)
 		*(.sbss2)
 		*(.sbss2.*)
+		. = ALIGN(4);
+		__usbh_class_info_start__ = .;
+		KEEP(*(.usbh_class_info))
+		__usbh_class_info_end__ = .;
 	} >FLASH AT>FLASH
 
-	.data 0x20000000 :
+	.data 0x20000000 :  ALIGN(16)
 	{
 		_data_start = .;
 		*(.data)
@@ -70,6 +74,10 @@ SECTIONS
 		_bss_end = . ;
 	} >SRAM
 	_end = .;
+
+	. = ALIGN(256);
+	_heap_start = .;
+	_heap_size = ORIGIN(SRAM) + LENGTH(SRAM) - _heap_start;
 
 	/*
 	   These debug sections are here for information only - they're not going to be

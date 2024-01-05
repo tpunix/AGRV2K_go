@@ -2,6 +2,7 @@
 /*.o
 /*.bin
 /*.dump
+/objs/
 
 /fpga/ulogic/*
 !/fpga/ulogic/ulogic.v

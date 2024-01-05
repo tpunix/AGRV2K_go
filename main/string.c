@@ -4,33 +4,31 @@
 
 #include "main.h"
 
-void *memset(void *s, int v, int n)
+void *memset(void *s, int v, unsigned int n)
 {
     register char *p = (char *)s;
 
-    while(1){
-        if(--n<0)
-            break;
+    while(n){
         *p++ = (char)v;
+		n -= 1;
     }
 
     return s;
 }
 
-void *memcpy(void *to, void *from, int n)
+void *memcpy(void *to, const void *from, unsigned int n)
 {
     register char *t = (char *)to;
 
-    while(1){
-        if(--n<0)
-            break;
+    while(n){
         *t++ = *(char*)from++;
+		n -= 1;
     }
 
     return to;
 }
 
-int memcmp(void *dst, void *src, int n)
+int memcmp(const void *dst, const void *src, unsigned int n)
 {
 	register int i;
 	register unsigned char *s = (unsigned char*)src;
@@ -40,9 +38,6 @@ int memcmp(void *dst, void *src, int n)
 		unsigned char ds = *s;
 		unsigned char dd = *d;
 		if(ds!=dd){
-//			printk("memcmp mismatch at %08x:\n", i);
-//			printk("    dst_%08x=%02x\n", d, dd);
-//			printk("    src_%08x=%02x\n", s, ds);
 			return dd-ds;
 		}
 		s++;
@@ -54,7 +49,7 @@ int memcmp(void *dst, void *src, int n)
 
 
 
-char *strcpy(char *dst, char *src)
+char *strcpy(char *dst, const char *src)
 {
     register char *d = dst;
     register char t;
@@ -67,22 +62,23 @@ char *strcpy(char *dst, char *src)
     return dst;
 }
 
-char *strncpy(char *dst, char *src, int n)
+char *strncpy(char *dst, const char *src, unsigned int n)
 {
     register char *d = dst;
     register char t;
 
-    do{
-        if(--n<0)
-            break;
+    while(n){
         t = *src++;
         *d++ = t;
-    }while(t);
+		if(t==0)
+			break;
+		n -= 1;
+    }
 
     return dst;
 }
 
-int strcmp(char *s1, char *s2)
+int strcmp(const char *s1, const char *s2)
 {
     int r;
     int t;
@@ -99,42 +95,59 @@ int strcmp(char *s1, char *s2)
     return r;
 }
 
-int strncmp(char *s1, char *s2, int n)
+int strcasecmp(const char *s1, const char *s2)
 {
-    register int r = 0;
-    register int t;
+    int r;
+    int t1, t2;
 
     while(1){
-        if(--n<0)
-            break;
-        t = (int)*s1++;
-        r = t - (int)*s2++;
-        if(r)
-            break;
-        if(t==0)
+        t1 = (int)*s1++;
+        t2 = (int)*s1++;
+		if(t1>='A' && t1<='Z') t1 = t1-'A'+'a';
+		if(t2>='A' && t2<='Z') t2 = t2-'A'+'a';
+        r = t1 - t2;
+        if(r || t1==0)
             break;
     }
 
     return r;
 }
 
+int strncmp(const char *s1, const char *s2, unsigned int n)
+{
+    register int r = 0;
+    register int t;
 
-char *strchr(char *s1, int ch)
+    while(n){
+        t = (int)*s1++;
+        r = t - (int)*s2++;
+        if(r)
+            break;
+        if(t==0)
+            break;
+		n -= 1;
+    }
+
+    return r;
+}
+
+
+char *strchr(const char *s1, int ch)
 {
 	while(1){
 		char t = *s1;
 		if(t==0)
 			return (char*)0;
 		if(t==ch)
-			return s1;
+			return (char*)s1;
 		s1++;
 	}
 }
 
 
-int strlen(char *s)
+unsigned int strlen(const char *s)
 {
-    register char *p = s;
+    register const char *p = s;
 
     while(*p++);
 

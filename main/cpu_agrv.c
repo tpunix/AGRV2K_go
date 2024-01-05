@@ -1,6 +1,7 @@
 
 
 #include "main.h"
+#include "xos.h"
 
 
 /******************************************************************************/
@@ -82,7 +83,7 @@ u32 get_timer(void)
 
 void udelay(int us)
 {
-	reset_timer();
+	//reset_timer();
 	u32 end = get_timer() + us;
 	while(get_timer()<end);
 }
@@ -127,12 +128,8 @@ void uart0_init(int baudrate)
 
 int getc(int tmout)
 {
-	reset_timer();
-	u32 end = get_timer() + tmout*(TIMER_HZ/1000);
 	while((UART0->FR&0x0010)){
-		if(get_timer()>=end){
-			return -1;
-		}
+		xos_task_delay(5);
 	};
 	return (UART0->DR)&0xff;
 }
@@ -347,12 +344,16 @@ static char *reg_names[32] = {
 	"s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
 };
 
+int in_isr = 0;
 void trap_handle(u32 *regs, int cause)
 {
 	int i;
 
+	in_isr = 1;
+
 	if(cause<0){
 		int_handle(regs, cause&0xff);
+		in_isr = 0;
 		return;
 	}else{
 		printk("\n[%s!]: EPC=%08x TVAL=%08x CAUSE=%d\n", excp_msg[cause], regs[31], read_csr(mtval), cause);
@@ -380,7 +381,7 @@ void trap_init(void)
 	clear_csr(mstatus, MSTATUS_MIE);
 	write_csr(mtvec, (u32)_trap_entry);
 
-	// Ã²ËÆµÚÒ»´ÎenableÒ»¸öÍâ²¿ÖÐ¶Ï£¬×Ü»áÏÈ´¥·¢Ò»´Î¡£ÕâÀïÏÈÍ³Ò»´¥·¢Çå³ýÒ»´Î¡£
+	// è²Œä¼¼ç¬¬ä¸€æ¬¡enableä¸€ä¸ªå¤–éƒ¨ä¸­æ–­ï¼Œæ€»ä¼šå…ˆè§¦å‘ä¸€æ¬¡ã€‚è¿™é‡Œå…ˆç»Ÿä¸€è§¦å‘æ¸…é™¤ä¸€æ¬¡ã€‚
 	PLIC->ENABLE[0] = 0xffffffff;
 	PLIC->ENABLE[1] = 0xffffffff;
 	do{
@@ -399,63 +400,9 @@ void trap_init(void)
 	}
 
 	set_csr(mie, (1<<IRQ_M_EXT));
-	set_csr(mstatus, MSTATUS_MIE);
+	set_csr(mstatus, MSTATUS_MIE|MSTATUS_MPIE);
 }
 
 
 /******************************************************************************/
-
-
-int dmac_tc_irq(void *regs, void *arg)
-{
-	printk("\nDMAC TC!\n");
-	DMAC->IntTCClear = 1;
-	return 0;
-}
-
-void dma_test(void)
-{
-
-	int_request(DMAC0_INTTC_IRQn, dmac_tc_irq, NULL);
-	int_enable(DMAC0_INTTC_IRQn);
-
-	DMAC->CH[0].SrcAddr = 0x80000000;
-	DMAC->CH[0].DstAddr = 0x68000000;
-	DMAC->CH[0].LLI     = 0x00000000;
-	DMAC->CH[0].Control = 0x8e480000 | (2048);
-	DMAC->CH[0].Config  = 0x00008001;
-
-}
-
-
-
-/******************************************************************************/
-
-
-int main(void)
-{
-	system_init();
-	device_init();
-	trap_init();
-
-	puts("\n\nAGRV2K start!\n");
-	printk(" mstatus: %08x\n", read_csr(mstatus));
-	printk("   mtvec: %08x\n", read_csr(mtvec));
-	printk("    mie: %08x\n", read_csr(mie));
-	printk("    mip: %08x\n", read_csr(mip));
-
-	simple_shell();
-
-	while(1){
-		gpio_set(2, 0, 0);
-		mdelay(500);
-		gpio_set(2, 0, 1);
-		mdelay(500);
-		//printk("FR: %08x\n", UART0->FR);
-	}
-
-	return 0;
-}
-
-
 

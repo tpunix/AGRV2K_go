@@ -127,36 +127,61 @@ static int dump_addr = 0;
 
 void dump(int argc, int *args, int width)
 {
-	int p, addr, len;
+	int i, c, p, addr, len;
 	u32 d;
+	u8 sbuf[16];
 
 	addr = (argc>=1)? args[0] : dump_addr;
 	len  = (argc>=2)? args[1] : 256;
 	if(width==0)
 		width = dump_width;
 
+	c = 0;
 	p = 0;
-	while(p<len){
-		if((p%16)==0){
-			printk("\n%08x:  ", addr);
+	while(1){
+		if((p%16)==0 || p>=len){
+			if(c){
+				printk(" ");
+				for(i=0; i<c; i++){
+					if(sbuf[i]>0x20 && sbuf[i]<0x80){
+						printk("%c", sbuf[i]);
+					}else{
+						printk(".");
+					}
+				}
+				c = 0;
+			}
+			if(p>=len){
+				printk("\n");
+			}else{
+				printk("\n%08x:  ", addr);
+			}
 		}else if((p%8)==0){
 			printk("- ");
 		}
+		if(p>=len)
+			break;
 
 		if(width==1){
 			d = *(u8*)(addr);
+			sbuf[c++] = d;
 			printk("%02x ", d);
 		}else if(width==2){
 			d = *(u16*)(addr);
+			sbuf[c++] = d;    // Little endian
+			sbuf[c++] = d>>8;
 			printk("%04x ", d);
 		}else{
 			d = *(u32*)(addr);
+			sbuf[c++] = d;    // Little endian
+			sbuf[c++] = d>>8;
+			sbuf[c++] = d>>16;
+			sbuf[c++] = d>>24;
 			printk("%08x ", d);
 		}
 		p += width;
 		addr += width;
 	}
-	printk("\n");
 
 	dump_width = width;
 	dump_addr = addr;
@@ -287,29 +312,19 @@ void simple_shell(void)
 			void sd_test(void);
 			sd_test();
 		}
-		CMD(sdr){
-			int sd_testr(int blkaddr, int blkcnt);
-			int baddr=0;
-			int bcnt=4;
-			if(argc>=2){
-				baddr = arg[0];
-				bcnt = arg[1];
-			}
-			sd_testr(baddr, bcnt);
+		CMD(sdrt){
+			sd_read_blocks(arg[0], arg[1], (void*)arg[2]);
 		}
-		CMD(sdw){
-			int sd_testw(int blkaddr, int blkcnt);
-			int baddr=0;
-			int bcnt=4;
-			if(argc>=2){
-				baddr = arg[0];
-				bcnt = arg[1];
-			}
-			sd_testw(baddr, bcnt);
+
+
+		CMD(usb){
+			int cherryusb_start(void);
+			int retv = cherryusb_start();
+			printk("usb_start:%d\n", retv);
 		}
-		CMD(sds){
-			int sd_status(void);
-			sd_status();
+		CMD(xxx){
+			void dump_task(void);
+			dump_task();
 		}
 
 		CMD(mt){
@@ -321,13 +336,6 @@ void simple_shell(void)
 				udelay(1000000);
 			}
 		}
-
-#ifdef RUN_COREMARK
-		CMD(cmk){
-			void cmain(void);
-			cmain();
-		}
-#endif
 
 		CMD(q){
 			break;

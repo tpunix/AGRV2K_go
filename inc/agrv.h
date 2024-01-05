@@ -590,6 +590,64 @@ typedef struct
 
 /******************************************************************************/
 
+
+#define USB USB0 // This is the only USB supported for now
+#define USB_ENDPOINTS 4
+#define USB_FS 1
+#define USB_MAX_PACKET_LEN (USB_FS ? 0x40 : 0x200)
+
+typedef struct 
+{
+	uint32_t Reserved0[32];            // 0x000h-0x07Ch, Reserved
+	uint32_t GPTIMER0LD;               // 0x080h, GPTIMER0LD General Purpose Timer #0 Load Register
+	uint32_t GPTIMER0CTRL;             // 0x084h, GPTIMER0CTRL General Purpose Timer #0 Control Register
+	uint32_t GPTIMER1LD;               // 0x088h, GPTIMER1LD General Purpose Timer #1 Load Register
+	uint32_t GPTIMER1CTRL;             // 0x08Ch, GPTIMER1CTRL General Purpose Timer #1 Control Register
+	uint32_t Reserved1[28];            // 0x090h-0x0FCh, Reserved
+	uint8_t  CAPLENGTH;                // 0x100h, CAPLENGTH Capability Register Length
+	uint8_t  Reserved2;                // 0x101h, Reserved
+	uint16_t HCIVERSION;               // 0x102h, HCIVERSION Host Interface Version Number
+	uint32_t HCSPARAMS;                // 0x104h, HCSPARAMS Host Ctrl. Structural Parameters
+	uint32_t HCCPARAMS;                // 0x108h, HCCPARAMS Host Ctrl. Capability Parameters
+	uint32_t Reserved3[13];            // 0x10Ch-0x13Ch, Reserved
+	uint32_t USBCMD;                   // 0x140h, USB Command
+	uint32_t USBSTS;                   // 0x144h, USB Status
+	uint32_t USBINTR;                  // 0x148h, USB Interrupt Enable
+	uint32_t FRINDEX;                  // 0x14Ch, USB Frame Index
+	uint32_t Reserved4;                // 0x150h, Reserved
+	union {
+		uint32_t PERIODICLISTBASE;       // 0x154h, Frame List Base Address
+		uint32_t DEVICEADDR;             // 0x154h, Device Address
+	};
+	union {
+		uint32_t ASYNCLISTADDR;          // 0x158h, Next Asynchronous List Address
+		uint32_t ENDPOINTLISTADDR;       // 0x158h, Next Asynchronous List Address
+	};
+	uint32_t Reserved5;                // 0x15Ch, Reserved
+	uint32_t BURSTSIZE;                // 0x160h, Programmable Burst Size
+	uint32_t TXFILLTUNING;             // 0x164h, Host Transmit Pre-Buffer Packet Tuning
+	uint32_t Reserved6[4];             // 0x168h-0x174h, Reserved
+	uint32_t ENDPTNAK;                 // 0x178h, Endpoint NAK
+	uint32_t ENDPTNAKEN;               // 0x17Ch, Endpoint NAK Enable
+	uint32_t CONFIGFLAG;               // 0x180h, Configured Flag Register
+	uint32_t PORTSC;                   // 0x184h, Port Status/Control
+	uint32_t Reserved7[7];             // 0x188h-0x1A0h, Reserved
+	uint32_t OTGSC;                    // 0x1A4h, OTG Status and Control
+	uint32_t USBMODE;                  // 0x1A8h, USB Device Mode
+	uint32_t ENDPTSETUPSTAT;           // 0x1ACh, Endpoint Setup Status
+	uint32_t ENDPTPRIME;               // 0x1B0h, Endpoint Initialization
+	uint32_t ENDPTFLUSH;               // 0x1B4h, Endpoint De-Initialize
+	uint32_t ENDPTSTATUS;              // 0x1B8h, Endpoint Status
+	uint32_t ENDPTCOMPLETE;            // 0x1BCh, Endpoint Complete
+	uint32_t ENDPTCTRL[USB_ENDPOINTS]; // 0x1C0h, Endpoint Control
+} USB_TypeDef;
+
+
+#define USB0_BASE 0x41001000
+#define USB0 ((USB_TypeDef *) USB0_BASE)
+#define AHB_MASK_USB0 (1 << 1)
+#define USB0_IRQn 35
+
 /******************************************************************************/
 
 /******************************************************************************/

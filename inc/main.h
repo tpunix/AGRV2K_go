@@ -56,26 +56,36 @@ void gpio_dir(int group, int bit, int dir);
 void gpio_set(int group, int bit, int val);
 int  gpio_get(int group, int bit);
 
+
+void device_init(void);
+void trap_init(void);
+
 /******************************************************************************/
+
+int sd_identify(void);
+int sd_read_blocks(u32 block, int count, u8 *buf);
+int sd_write_blocks(u32 block, int count, u8 *buf);
 
 
 
 int printk(char *fmt, ...);
 int sprintk(char *sbuf, const char *fmt, ...);
+int snprintf(char *sbuf, int len, const char *fmt, ...);
 void hex_dump(char *str, void *addr, int size);
 
 
-int strlen(char *s);
-int strcmp(char *s1, char *s2);
-int strncmp(char *s1, char *s2, int n);
-char *strcpy(char *dst, char *src);
-char *strncpy(char *dst, char *src, int n);
-char *strchr(char *s1, int ch);
+unsigned int strlen(const char *s);
+int strcmp(const char *s1, const char *s2);
+int strncmp(const char *s1, const char *s2, unsigned int n);
+int strcasecmp(const char *s1, const char *s2);
+char *strcpy(char *dst, const char *src);
+char *strncpy(char *dst, const char *src, unsigned int n);
+char *strchr(const char *s1, int ch);
 u32 strtoul(char *str, char **endptr, int requestedbase, int *ret);
 
-void *memset(void *s, int v, int n);
-void *memcpy(void *to, void *from, int n);
-int memcmp(void *dst, void *src, int n);
+void *memset(void *s, int v, unsigned int n);
+void *memcpy(void *to, const void *from, unsigned int n);
+int memcmp(const void *dst, const void *src, unsigned int n);
 
 
 void simple_shell(void);

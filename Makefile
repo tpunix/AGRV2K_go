@@ -1,60 +1,81 @@
 
+
+################################################################
+
 OO_DIR = /e/AGRV/AgRV_pio/packages/tool-agrv_logic/openocd/
-OPENOCD = $(OO_DIR)/bin/openocd.exe -c "set CONNECT_UNDER_RESET 1" -f $(OO_DIR)/agrv2k.cfg 
-#OPENOCD = $(OO_DIR)/bin/openocd.exe -c "set ADAPTER cmsis-dap; set CONNECT_UNDER_RESET 1" -f $(OO_DIR)/agrv2k.cfg 
+OPENOCD = $(OO_DIR)/bin/openocd.exe -c "set ADAPTER cmsis-dap; set CONNECT_UNDER_RESET 1" -f $(OO_DIR)/agrv2k.cfg 
 CROSS = riscv64-unknown-elf-
 
 CC = $(CROSS)gcc
 AS = $(CROSS)gcc
 LD = $(CROSS)gcc
-GDB = $(CROSS)gdb
 OBJCOPY = $(CROSS)objcopy
 OBJDUMP = $(CROSS)objdump
-
-
-CFLAGS = -Wall -g -O3 -I. -Iinc -march=rv32imafc -mabi=ilp32f -fno-builtin
-LDFLAGS  = -fno-builtin -nostartfiles -nodefaultlibs -march=rv32imafc -mabi=ilp32f
-LIBS = -lgcc
-
-# SRAM
-#LDFLAGS += -T ld_ram.S -Wl,--defsym,TEXT_START=0x20000000
-#ASFLAG  += -DRUN_SRAM
-# FLASH
-LDFLAGS += -T ld.S -Wl,--defsym,TEXT_START=0x80000000
-ASFLAG  += -DRUN_FLASH
+GDB = $(CROSS)gdb
 
 
 TARGET = agrv32.elf
 
-OBJS = start.o main.o shell.o printk.o string.o spi_sd.o
+modules  = main cherryusb tntfs
 
-#coremark
-ifeq (1,0)
-CMK_CFLAGS += -funroll-all-loops -finline-limit=600 -ftree-dominator-opts -fno-if-conversion2 -fselective-scheduling -fno-code-hoisting -fno-common -funroll-loops -finline-functions -falign-functions=4 -falign-jumps=4 -falign-loops=4
-CMK_OBJS += coremark/core_list_join.o
-CMK_OBJS += coremark/core_main.o
-CMK_OBJS += coremark/core_matrix.o
-CMK_OBJS += coremark/core_portme.o
-CMK_OBJS += coremark/core_state.o
-CMK_OBJS += coremark/core_util.o
-$(CMK_OBJS): CFLAGS += $(CMK_CFLAGS)
+################################################################
 
-CFLAGS += -DRUN_COREMARK
-OBJS += $(CMK_OBJS)
-endif
+make_module_dirs := $(shell mkdir -p $(addprefix objs/, $(modules)) )
 
-###############################################################
 
+OBJS    :=
+INCDIR  := -Iinc
+DEFS    :=
+
+LDFLAGS := -fno-builtin -nostartfiles -nodefaultlibs
+
+include $(addsuffix /Makefile, $(modules))
+
+CFLAGS  := -Wall -g -MMD -fno-builtin $(DEFS) $(INCDIR)
+
+TOBJS = $(addprefix objs/, $(OBJS))
+DEPENDS = $(patsubst %.o, %.d, $(TOBJS))
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS) ld.S
-	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
-	$(OBJDUMP) -xds $@ >$@.dump
-	$(OBJCOPY) -O binary -R .comment -R .note* $@ $@.bin
-
 clean:
-	rm -f $(TARGET) $(OBJS) *.bin *.dump
+	rm -f $(TOBJS) $(TARGET) $(TARGET).bin $(TARGET).dump
+
+
+$(TARGET): $(TOBJS)
+ifeq ($(V), 1)
+	@echo $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	@echo $(OBJDUMP) -xd $@ >$@.dump
+	@echo $(OBJCOPY) -O binary -R .comment -R .note* $@ $@.bin
+else
+	@echo linking  $@ ...
+endif
+	@$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	@$(OBJDUMP) -xd $@ >$@.dump
+	@$(OBJCOPY) -O binary -R .comment -R .note* $@ $@.bin
+
+
+-include $(DEPENDS)
+
+objs/%.o: %.c
+ifeq ($(V), 1)
+	@echo $(CC)  $(CFLAGS) -c $< -o $@
+else
+	@echo Compile  $< ...
+endif
+	@$(CC)  $(CFLAGS) -c $< -o $@
+
+objs/%.o: %.S
+ifeq ($(V), 1)
+	@echo $(CC)  -D__ASSEMBLY__ $(CFLAGS) $(ASFLAG) -c $< -o $@
+else
+	@echo Compile  $< ...
+endif
+	@$(CC)  -D__ASSEMBLY__ $(CFLAGS) $(ASFLAG) -c $< -o $@
+
+
+################################################################
+
 
 dl: $(TARGET)
 	$(OPENOCD) -c "flash write_image erase agrv32.elf.bin 0x80000000" -c "reset" -c "exit"
@@ -66,10 +87,4 @@ gdb:
 oohlp:
 	$(OPENOCD) -c "help" -c "exit"
 
-
-%.o: %.c
-	$(CC)  $(CFLAGS)   -c $< -o $@
-
-%.o: %.S
-	$(CC)  -D__ASSEMBLY__ $(CFLAGS) $(ASFLAG) -c $< -o $@
 
