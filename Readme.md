@@ -23,6 +23,8 @@ MCU部分:
 　　初始化串口与时钟，跑起一个简单的串口shell，可以读写地址做各种测试。  
 　　简单的中断系统。  
 　　可以coremark跑分。  
+　　使用CherryUSB驱动EHCI。  
+　　简单的文件系统与RTOS。  
 FPGA部分:  
 　　实现了简单的AHB接口，可以访问FPGA上的外设寄存器。  
 　　实现了简单的SPI PSRAM控制器。  
